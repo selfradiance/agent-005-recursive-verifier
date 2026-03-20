@@ -1,4 +1,5 @@
 .env
+*_PROJECT_CONTEXT.md
 node_modules/
 dist/
 *.log
