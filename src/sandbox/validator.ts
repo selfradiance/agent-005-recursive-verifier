@@ -26,7 +26,6 @@ const BLOCKLIST = [
   "https.",
   "fetch(",
   "eval(",
-  "Function(",
   "globalThis",
   "__dirname",
   "__filename",
@@ -69,6 +68,9 @@ const UNBOUNDED_LOOPS = [
   /for\s*\(\s*;\s*;\s*\)/,
 ];
 
+// Standalone Function( — blocks `Function(` and `new Function(` but allows `callFunction(`
+const STANDALONE_FUNCTION_PATTERN = /(?<![a-zA-Z])Function\s*\(/;
+
 // ---------------------------------------------------------------------------
 // validateGeneratedCode
 // ---------------------------------------------------------------------------
@@ -90,6 +92,11 @@ export function validateGeneratedCode(code: string): ValidationResult {
     if (code.includes(pattern)) {
       return { valid: false, reason: `Blocked pattern found: ${pattern}` };
     }
+  }
+
+  // Standalone Function( check (allows callFunction, blocks Function constructor)
+  if (STANDALONE_FUNCTION_PATTERN.test(code)) {
+    return { valid: false, reason: "Blocked pattern found: Function(" };
   }
 
   // String concatenation heuristic: fragment followed by + within 20 chars
