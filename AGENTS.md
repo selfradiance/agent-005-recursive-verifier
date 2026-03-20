@@ -6,6 +6,8 @@ Agent 005 is a recursive verification framework. It extracts the recursive sandb
 
 The core loop: reason → generate JavaScript code → execute in sandbox → measure outcome → iterate.
 
+**Critical product boundary:** Agent 005 sandboxes the GENERATED TEST CODE, not the target module. The user's target module runs in the parent process with full Node.js capability.
+
 ## Tech Stack
 
 - **Language:** TypeScript
@@ -19,21 +21,29 @@ The core loop: reason → generate JavaScript code → execute in sandbox → me
 ## Architecture
 
 ```
-CLI (src/cli.ts)           → Entry point, --mode flag selects verification type
-Runner (src/runner.ts)     → Orchestrates the recursive loop per mode
-Reasoner (src/reasoner.ts) → Claude API: analyzes results, produces hypotheses
-Generator (src/generator.ts) → Claude API: turns hypotheses into executable JS
-Sandbox (src/sandbox/)     → Validator, executor, child runner — ported from Agent 004
+CLI (src/cli.ts)              → Entry point, arg parsing, startup banner
+Runner (src/runner.ts)        → Orchestrates the recursive loop per mode
+Reasoner (src/reasoner.ts)    → Claude API: source code + prior results → hypotheses
+Generator (src/generator.ts)  → Claude API: hypotheses → executable test code
+Scorer (src/scorer.ts)        → 8 metrics + edge case detection
+Reporter (src/reporter.ts)    → Claude API: all rounds → final summary report
+ModuleHost (src/module-host.ts) → Loads target module, dispatches function calls, normalizes results
+Sandbox:
+  toolkit-host.ts             → IPC handler: 10 verification toolkit methods
+  executor.ts                 → Spawns permission-restricted child, manages lifecycle
+  child-runner.js             → Global nullification, IPC toolkit, executes generated JS
+  validator.ts                → Blocklist + structural checks before execution
 ```
 
 ## Key Rules
 
 1. **Never weaken sandbox security.** The four-layer defense (permission flags, global nullification, IPC-only toolkit, string-level validator) must remain intact.
-2. **Sandbox code is ported from Agent 004** (`~/Desktop/projects/agent-004-red-team/src/sandbox/`). Do not rewrite from scratch.
+2. **Sandbox code originated from Agent 004** (`~/Desktop/projects/agent-004-red-team/src/sandbox/`). Already adapted for verification.
 3. **Agent 005 is standalone.** It does NOT depend on AgentGate.
 4. **Never commit `.env`** — it contains `ANTHROPIC_API_KEY`.
 5. **Run all tests** (`npm test`) before committing.
 6. **Update `AGENT005_PROJECT_CONTEXT.md`** at the end of every session.
+7. **The validator blocklist must not block toolkit method names.** The `Function(` pattern uses a negative lookbehind so `callFunction(` is allowed.
 
 ## Coding Conventions
 
