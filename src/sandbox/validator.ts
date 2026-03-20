@@ -33,6 +33,7 @@ const BLOCKLIST = [
   "exports.",
   "constructor.",
   "prototype.",
+  "__proto__",
   "Reflect.",
   "Reflect[",
   "Proxy",

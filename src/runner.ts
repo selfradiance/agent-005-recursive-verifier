@@ -31,6 +31,7 @@ export interface RunnerOptions {
   rounds: number;
   verbose: boolean;
   maxSourceTokens?: number;
+  moduleHost?: ModuleHost;
 }
 
 export interface RunResult {
@@ -46,9 +47,11 @@ export interface RunResult {
 export async function run(options: RunnerOptions): Promise<RunResult> {
   const { filePath, functions, rounds, verbose, maxSourceTokens = 8000 } = options;
 
-  // Step 1: Load target module
-  const moduleHost = new ModuleHost();
-  await moduleHost.load(filePath);
+  // Step 1: Load target module (reuse pre-loaded host if provided)
+  const moduleHost = options.moduleHost ?? new ModuleHost();
+  if (!options.moduleHost) {
+    await moduleHost.load(filePath);
+  }
 
   const allExports = moduleHost.getExports();
   let sourceCode = moduleHost.getSourceCode();

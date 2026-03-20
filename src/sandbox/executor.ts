@@ -87,6 +87,7 @@ export async function executeInSandbox(
           execArgv: [
             "--permission",
             "--allow-fs-read=" + realTempDir,
+            "--max-old-space-size=64",
           ],
           stdio: ["pipe", "pipe", "pipe", "ipc"],
         });

@@ -49,6 +49,11 @@ delete globalThis.setInterval;
 delete globalThis.setImmediate;
 delete globalThis.queueMicrotask;
 
+// Binary / encoding
+delete globalThis.Buffer;
+delete globalThis.TextEncoder;
+delete globalThis.TextDecoder;
+
 // ---------------------------------------------------------------------------
 // Step 3: Set up IPC-based toolkit
 // ---------------------------------------------------------------------------

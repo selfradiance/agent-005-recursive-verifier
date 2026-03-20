@@ -63,11 +63,18 @@ const client = new Anthropic();
 export async function generateReport(runResult: RunResult): Promise<ReportOutput> {
   const prompt = buildReportPrompt(runResult);
 
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 4096,
-    messages: [{ role: "user", content: prompt }],
-  });
+  let response;
+  try {
+    response = await client.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 4096,
+      messages: [{ role: "user", content: prompt }],
+    });
+  } catch (err) {
+    const errorMsg = `Failed to generate report: ${err instanceof Error ? err.message : String(err)}`;
+    console.log(`  ⚠️  ${errorMsg}`);
+    return { summary: errorMsg, raw: "" };
+  }
 
   const raw = response.content
     .filter((block) => block.type === "text")

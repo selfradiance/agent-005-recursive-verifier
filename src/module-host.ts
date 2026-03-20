@@ -67,9 +67,8 @@ export interface MeasureTimeResult {
 // Result normalization (IPC serialization policy)
 // ---------------------------------------------------------------------------
 
-const seen = new WeakSet();
-
-export function normalizeValue(value: unknown): unknown {
+export function normalizeValue(value: unknown, _seen?: WeakSet<object>): unknown {
+  const seen = _seen ?? new WeakSet();
   // Primitives
   if (value === null) return null;
   if (value === undefined) return "[undefined]";
@@ -91,12 +90,12 @@ export function normalizeValue(value: unknown): unknown {
 
   // Map
   if (value instanceof Map) {
-    return { __type: "Map", entries: Array.from(value.entries()).map(([k, v]) => [normalizeValue(k), normalizeValue(v)]) };
+    return { __type: "Map", entries: Array.from(value.entries()).map(([k, v]) => [normalizeValue(k, seen), normalizeValue(v, seen)]) };
   }
 
   // Set
   if (value instanceof Set) {
-    return { __type: "Set", values: Array.from(value.values()).map(normalizeValue) };
+    return { __type: "Set", values: Array.from(value.values()).map((v) => normalizeValue(v, seen)) };
   }
 
   // Circular reference detection
@@ -111,7 +110,7 @@ export function normalizeValue(value: unknown): unknown {
     try {
       // Plain arrays
       if (Array.isArray(value)) {
-        const result = value.map(normalizeValue);
+        const result = value.map((v) => normalizeValue(v, seen));
         seen.delete(value);
         return result;
       }
@@ -121,7 +120,7 @@ export function normalizeValue(value: unknown): unknown {
       if (proto === Object.prototype || proto === null) {
         const result: Record<string, unknown> = {};
         for (const [k, v] of Object.entries(value)) {
-          result[k] = normalizeValue(v);
+          result[k] = normalizeValue(v, seen);
         }
         seen.delete(value);
         return result;
@@ -131,7 +130,7 @@ export function normalizeValue(value: unknown): unknown {
       const className = (value as object).constructor?.name ?? "Unknown";
       const properties: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(value)) {
-        properties[k] = normalizeValue(v);
+        properties[k] = normalizeValue(v, seen);
       }
       seen.delete(value);
       return { __type: "Instance", className, properties };
@@ -209,13 +208,15 @@ export class ModuleHost {
       };
     }
 
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const resultPromise = Promise.resolve().then(() => fn(...args));
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("TIMEOUT")), 5000);
+        timer = setTimeout(() => reject(new Error("TIMEOUT")), 5000);
       });
 
       const result = await Promise.race([resultPromise, timeoutPromise]);
+      clearTimeout(timer);
       return {
         result: normalizeValue(result),
         error: null,
@@ -225,6 +226,7 @@ export class ModuleHost {
         status: "passed",
       };
     } catch (err) {
+      clearTimeout(timer);
       const timeMs = Date.now() - start;
       const message = err instanceof Error ? err.message : String(err);
 
@@ -308,7 +310,10 @@ export class ModuleHost {
 
   // Type check assertion
   assertType(value: unknown, expectedType: string, label: string): AssertTypeResult {
-    const actualType = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+    const actualType = (typeof value === "number" && Number.isNaN(value)) ? "NaN"
+      : value === null ? "null"
+      : Array.isArray(value) ? "array"
+      : typeof value;
     const passed = actualType === expectedType;
     return {
       passed,

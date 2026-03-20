@@ -130,11 +130,11 @@ async function main(): Promise<void> {
   }
 
   try {
-    // Quick-load module to get export count for banner
+    // Load module once for banner info, then pass to runner
     const { ModuleHost } = await import("./module-host.js");
-    const tempHost = new ModuleHost();
-    await tempHost.load(args.file);
-    const exports = tempHost.getExports();
+    const moduleHost = new ModuleHost();
+    await moduleHost.load(args.file);
+    const exports = moduleHost.getExports();
 
     printBanner(args.file, exports.length, args.rounds);
 
@@ -145,12 +145,13 @@ async function main(): Promise<void> {
 
     console.log(`Exported functions: ${exports.join(", ")}\n`);
 
-    // Run the recursive loop
+    // Run the recursive loop (pass pre-loaded module host)
     const result = await run({
       filePath: args.file,
       functions: args.functions,
       rounds: args.rounds,
       verbose: args.verbose,
+      moduleHost,
     });
 
     // Generate final report

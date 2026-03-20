@@ -112,11 +112,17 @@ export async function generateHypotheses(input: ReasonerInput): Promise<Reasoner
     ? buildRound1Prompt(input)
     : buildRound2PlusPrompt(input);
 
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 4096,
-    messages: [{ role: "user", content: prompt }],
-  });
+  let response;
+  try {
+    response = await client.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 4096,
+      messages: [{ role: "user", content: prompt }],
+    });
+  } catch (err) {
+    console.log(`  ⚠️  Claude API error in reasoner: ${err instanceof Error ? err.message : String(err)}`);
+    return { hypotheses: [], raw: "" };
+  }
 
   const raw = response.content
     .filter((block) => block.type === "text")

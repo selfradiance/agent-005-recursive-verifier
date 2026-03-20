@@ -82,11 +82,17 @@ const client = new Anthropic();
 export async function generateTestCode(hypotheses: Hypothesis[]): Promise<GeneratorOutput> {
   const prompt = buildGeneratorPrompt(hypotheses);
 
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 4096,
-    messages: [{ role: "user", content: prompt }],
-  });
+  let response;
+  try {
+    response = await client.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 4096,
+      messages: [{ role: "user", content: prompt }],
+    });
+  } catch (err) {
+    console.log(`  ⚠️  Claude API error in generator: ${err instanceof Error ? err.message : String(err)}`);
+    return { code: "", raw: "" };
+  }
 
   const raw = response.content
     .filter((block) => block.type === "text")
