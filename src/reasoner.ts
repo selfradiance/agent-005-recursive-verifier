@@ -123,18 +123,48 @@ export async function generateHypotheses(input: ReasonerInput): Promise<Reasoner
     .map((block) => block.text)
     .join("");
 
-  // Parse JSON from response — handle possible markdown fences
+  // Parse JSON from response — handle markdown fences and surrounding text
   let jsonStr = raw.trim();
-  if (jsonStr.startsWith("```")) {
-    jsonStr = jsonStr.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+
+  // Strip markdown fences
+  if (jsonStr.includes("```")) {
+    const fenceMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+    if (fenceMatch) {
+      jsonStr = fenceMatch[1];
+    }
   }
+
+  // If response has text before/after JSON, extract the JSON object
+  if (!jsonStr.startsWith("{")) {
+    const jsonStart = jsonStr.indexOf("{");
+    const jsonEnd = jsonStr.lastIndexOf("}");
+    if (jsonStart !== -1 && jsonEnd !== -1) {
+      jsonStr = jsonStr.slice(jsonStart, jsonEnd + 1);
+    }
+  }
+
+  // Sanitize non-standard JSON values that Claude may produce.
+  // Only replace NaN/Infinity/undefined when they appear as JSON values
+  // (after : or , or [ and optional whitespace), not inside strings.
+  jsonStr = jsonStr
+    .replace(/([:,\[]\s*)NaN\b/g, '$1"NaN"')
+    .replace(/([:,\[]\s*)Infinity\b/g, '$1"Infinity"')
+    .replace(/([:,\[]\s*)-Infinity\b/g, '$1"-Infinity"')
+    .replace(/([:,\[]\s*)undefined\b/g, '$1null');
 
   let hypotheses: Hypothesis[];
   try {
     const parsed = JSON.parse(jsonStr);
     hypotheses = parsed.hypotheses ?? [];
-  } catch {
-    // If JSON parsing fails, return empty hypotheses with the raw response
+  } catch (err) {
+    console.log(`  ⚠️  Failed to parse reasoner response as JSON: ${err instanceof Error ? err.message : String(err)}`);
+    // Show context around the error position
+    const posMatch = String(err).match(/position (\d+)/);
+    if (posMatch) {
+      const pos = parseInt(posMatch[1]);
+      console.log(`  Context around position ${pos}: ...${jsonStr.slice(Math.max(0, pos - 40), pos + 40)}...`);
+    }
+    console.log(`  Raw response (first 500 chars): ${raw.slice(0, 500)}`);
     hypotheses = [];
   }
 
