@@ -1,0 +1,190 @@
+// runner.ts — Orchestrates the recursive test generation loop.
+//
+// For each round: reasoner → generator → validator → executor → scorer.
+// Prior round scores feed into the next round's reasoner prompt.
+
+import { ModuleHost } from "./module-host.js";
+import { generateHypotheses, type ReasonerInput } from "./reasoner.js";
+import { generateTestCode } from "./generator.js";
+import { validateGeneratedCode } from "./sandbox/validator.js";
+import { executeInSandbox, type SandboxResult } from "./sandbox/executor.js";
+import { scoreRound, formatScoreForReasoner, type RoundScore } from "./scorer.js";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface RoundResult {
+  round: number;
+  hypotheses: unknown[];
+  generatedCode: string;
+  validationPassed: boolean;
+  validationReason?: string;
+  sandboxResult: SandboxResult | null;
+  score: RoundScore | null;
+  formattedScore: string;
+}
+
+export interface RunnerOptions {
+  filePath: string;
+  functions?: string[];
+  rounds: number;
+  verbose: boolean;
+  maxSourceTokens?: number;
+}
+
+export interface RunResult {
+  rounds: RoundResult[];
+  moduleExports: string[];
+  sourceCode: string;
+}
+
+// ---------------------------------------------------------------------------
+// Main runner
+// ---------------------------------------------------------------------------
+
+export async function run(options: RunnerOptions): Promise<RunResult> {
+  const { filePath, functions, rounds, verbose, maxSourceTokens = 8000 } = options;
+
+  // Step 1: Load target module
+  const moduleHost = new ModuleHost();
+  await moduleHost.load(filePath);
+
+  const allExports = moduleHost.getExports();
+  let sourceCode = moduleHost.getSourceCode();
+
+  // Truncate source for reasoner if too large (~4 chars per token)
+  const charLimit = maxSourceTokens * 4;
+  if (sourceCode.length > charLimit) {
+    console.log(`⚠️  Target module is large (${Math.round(sourceCode.length / 1024)}KB). Reasoner will see first ${maxSourceTokens} tokens.`);
+    console.log(`    Use --functions to narrow scope for better results.\n`);
+    sourceCode = sourceCode.slice(0, charLimit);
+  }
+
+  const roundResults: RoundResult[] = [];
+  let priorScoreSummary = "";
+
+  for (let round = 1; round <= rounds; round++) {
+    console.log(`\n── Round ${round} of ${rounds} ──────────────────────────────────\n`);
+
+    // Step 2: Reasoner — generate hypotheses
+    console.log("  🧠 Reasoning about test gaps...");
+    const reasonerInput: ReasonerInput = {
+      sourceCode,
+      exports: allExports,
+      focusFunctions: functions,
+      round,
+      priorResults: round > 1 ? priorScoreSummary : undefined,
+    };
+
+    const { hypotheses } = await generateHypotheses(reasonerInput);
+    console.log(`  📋 ${hypotheses.length} hypotheses generated`);
+
+    if (verbose && hypotheses.length > 0) {
+      for (const h of hypotheses) {
+        console.log(`     • ${h.function}(${JSON.stringify(h.inputs)}) — ${h.behavior}`);
+      }
+    }
+
+    if (hypotheses.length === 0) {
+      console.log("  ⚠️  No hypotheses generated. Ending early.");
+      roundResults.push({
+        round,
+        hypotheses: [],
+        generatedCode: "",
+        validationPassed: false,
+        validationReason: "No hypotheses generated",
+        sandboxResult: null,
+        score: null,
+        formattedScore: "",
+      });
+      break;
+    }
+
+    // Step 3: Generator — produce test code
+    console.log("  ⚙️  Generating test code...");
+    const { code } = await generateTestCode(hypotheses);
+
+    if (verbose) {
+      console.log("\n  --- Generated Code ---");
+      console.log(code);
+      console.log("  --- End Code ---\n");
+    }
+
+    // Step 4: Validator — check code safety
+    console.log("  🔒 Validating generated code...");
+    const validation = validateGeneratedCode(code);
+
+    if (!validation.valid) {
+      console.log(`  ❌ Validation failed: ${validation.reason}`);
+      roundResults.push({
+        round,
+        hypotheses,
+        generatedCode: code,
+        validationPassed: false,
+        validationReason: validation.reason,
+        sandboxResult: null,
+        score: null,
+        formattedScore: "",
+      });
+      continue;
+    }
+    console.log("  ✅ Validation passed");
+
+    // Step 5: Executor — run in sandbox
+    console.log("  🏃 Executing in sandbox...");
+    const sandboxResult = await executeInSandbox(code, { moduleHost });
+
+    if (!sandboxResult.success) {
+      console.log(`  ❌ Sandbox execution failed: ${sandboxResult.error}`);
+      roundResults.push({
+        round,
+        hypotheses,
+        generatedCode: code,
+        validationPassed: true,
+        sandboxResult,
+        score: null,
+        formattedScore: "",
+      });
+      continue;
+    }
+
+    // Step 6: Scorer — compute metrics
+    const score = scoreRound(sandboxResult, allExports);
+    const formattedScore = formatScoreForReasoner(score, round);
+    priorScoreSummary += (priorScoreSummary ? "\n\n" : "") + formattedScore;
+
+    console.log(`\n  📊 Results:`);
+    console.log(`     Tests: ${score.testsGenerated} generated, ${score.testsPassed} passed, ${score.testsFailed} failed`);
+    console.log(`     Errors: ${score.errorsCaught} | Timeouts: ${score.timeouts} | Invalid: ${score.invalidTests}`);
+    console.log(`     Functions tested: ${score.uniqueFunctionsTested.join(", ") || "(none)"}`);
+    if (score.functionsNotTested.length > 0) {
+      console.log(`     Not yet tested: ${score.functionsNotTested.join(", ")}`);
+    }
+    console.log(`     Edge cases: ${score.edgeCaseClassesCovered.join(", ") || "(none)"} (${score.edgeCaseCount}/10)`);
+
+    // Print sandbox logs if any
+    if (sandboxResult.logs.length > 0) {
+      console.log(`\n  📝 Sandbox logs:`);
+      for (const log of sandboxResult.logs) {
+        console.log(`     ${log}`);
+      }
+    }
+
+    roundResults.push({
+      round,
+      hypotheses,
+      generatedCode: code,
+      validationPassed: true,
+      sandboxResult,
+      score,
+      formattedScore,
+    });
+  }
+
+  return {
+    rounds: roundResults,
+    moduleExports: allExports,
+    sourceCode,
+  };
+}
