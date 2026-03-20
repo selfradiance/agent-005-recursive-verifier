@@ -1,58 +1,71 @@
-// Parent-side sandbox executor — manages the full lifecycle of running
-// generated code in a permission-restricted child process.
+// executor.ts — Parent-side sandbox executor. Manages the full lifecycle of
+// running generated test code in a permission-restricted child process.
 
 import { fork, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { attachToolkitHost, attachStubToolkitHost, type ToolkitHostOptions } from "./toolkit-host";
+import { attachToolkitHost, type ToolkitCallLog } from "./toolkit-host.js";
+import type { ModuleHost } from "../module-host.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type SandboxResult = {
+export interface TestResult {
+  label: string;
+  status: string;
+  details?: unknown;
+}
+
+export interface SandboxResult {
   success: boolean;
-  result?: { caught: boolean; reason: string; sideEffects?: Record<string, unknown> };
+  result?: {
+    testsRun: number;
+    testsPassed: number;
+    testsFailed: number;
+    results: TestResult[];
+  };
   error?: string;
   timedOut?: boolean;
   logs: string[];
   durationMs: number;
-};
+  callLog: ToolkitCallLog[];
+}
 
 export interface ExecutorOptions {
-  targetUrl?: string;
-  agentIdentity?: {
-    identityId: string;
-    publicKey: string;
-    privateKey: string;
-  };
-  restKey?: string;
-  personaName?: string;
+  moduleHost: ModuleHost;
 }
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const CHILD_RUNNER_SOURCE = path.resolve(__dirname, "child-runner.js");
+const CHILD_RUNNER_SOURCE = path.resolve(
+  path.dirname(new URL(import.meta.url).pathname),
+  "child-runner.js",
+);
 const TIMEOUT_MS = 15_000;
 
 // ---------------------------------------------------------------------------
 // Main function
 // ---------------------------------------------------------------------------
 
-export async function executeInSandbox(code: string, options?: ExecutorOptions): Promise<SandboxResult> {
+export async function executeInSandbox(
+  code: string,
+  options: ExecutorOptions,
+): Promise<SandboxResult> {
   const startTime = Date.now();
   const logs: string[] = [];
+  let callLog: ToolkitCallLog[] = [];
   let tempDir: string | undefined;
 
   try {
     // Step 1: Create temp directory and resolve symlinks (macOS: /var → /private/var)
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-004-sandbox-"));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-005-sandbox-"));
     const realTempDir = fs.realpathSync(tempDir);
 
-    // Step 2: Copy child runner into temp directory (use realpath for all paths)
+    // Step 2: Copy child runner into temp directory
     const childRunnerDest = path.join(realTempDir, "child-runner.js");
     fs.copyFileSync(CHILD_RUNNER_SOURCE, childRunnerDest);
 
@@ -83,20 +96,16 @@ export async function executeInSandbox(code: string, options?: ExecutorOptions):
           error: `Failed to spawn child process: ${err instanceof Error ? err.message : String(err)}`,
           logs,
           durationMs: Date.now() - startTime,
+          callLog: [],
         });
         return;
       }
 
-      // Attach toolkit host — real HTTP if options provided, stubs otherwise
-      if (options?.targetUrl && options?.agentIdentity && options?.restKey) {
-        attachToolkitHost(child, {
-          targetUrl: options.targetUrl,
-          agentIdentity: options.agentIdentity,
-          restKey: options.restKey,
-        });
-      } else {
-        attachStubToolkitHost(child);
-      }
+      // Attach verification toolkit host
+      const hostResult = attachToolkitHost(child, {
+        moduleHost: options.moduleHost,
+      });
+      callLog = hostResult.callLog;
 
       // Step 4: Set up 15-second hard timeout
       const timer = setTimeout(() => {
@@ -107,6 +116,7 @@ export async function executeInSandbox(code: string, options?: ExecutorOptions):
           error: `Sandbox execution timed out after ${TIMEOUT_MS / 1000}s`,
           logs,
           durationMs: Date.now() - startTime,
+          callLog,
         });
       }, TIMEOUT_MS);
 
@@ -131,6 +141,7 @@ export async function executeInSandbox(code: string, options?: ExecutorOptions):
             result: m.result as SandboxResult["result"],
             logs,
             durationMs: Date.now() - startTime,
+            callLog,
           });
           return;
         }
@@ -143,12 +154,13 @@ export async function executeInSandbox(code: string, options?: ExecutorOptions):
             error: typeof m.error === "string" ? m.error : "Unknown error from child",
             logs,
             durationMs: Date.now() - startTime,
+            callLog,
           });
           return;
         }
       });
 
-      // Step 7: Handle child events
+      // Step 6: Handle child events
       child.on("error", (err) => {
         clearTimeout(timer);
         settle({
@@ -156,6 +168,7 @@ export async function executeInSandbox(code: string, options?: ExecutorOptions):
           error: `Child process error: ${err.message}`,
           logs,
           durationMs: Date.now() - startTime,
+          callLog,
         });
       });
 
@@ -166,11 +179,12 @@ export async function executeInSandbox(code: string, options?: ExecutorOptions):
           error: `Child process exited unexpectedly (code: ${exitCode}, signal: ${signal})`,
           logs,
           durationMs: Date.now() - startTime,
+          callLog,
         });
       });
 
-      // Step 6: Send the code to execute
-      child.send({ type: "execute", code, personaName: options?.personaName });
+      // Step 7: Send the code to execute
+      child.send({ type: "execute", code });
     });
 
     return result;
@@ -180,9 +194,10 @@ export async function executeInSandbox(code: string, options?: ExecutorOptions):
       error: `Executor error: ${err instanceof Error ? err.message : String(err)}`,
       logs,
       durationMs: Date.now() - startTime,
+      callLog,
     };
   } finally {
-    // Step 9: Cleanup temp directory
+    // Step 8: Cleanup temp directory
     if (tempDir) {
       try {
         fs.rmSync(tempDir, { recursive: true, force: true });

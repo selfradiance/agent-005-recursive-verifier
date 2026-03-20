@@ -1,12 +1,13 @@
-// child-runner.js — Sandboxed execution environment for novel attack code.
+// child-runner.js — Sandboxed execution environment for generated test code.
 //
 // This file runs directly via `node` (not tsx) with permission flags that restrict
 // filesystem, child process, and worker access. Before any generated code executes,
 // dangerous globals are deleted from the V8 context so the generated code cannot
 // access the network, filesystem, timers, or process information.
 //
-// The child process is logic-only. All HTTP calls go through an IPC-based toolkit
-// that sends messages to the parent process, which owns all network access.
+// The child process is logic-only. All function calls and assertions go through
+// an IPC-based toolkit that sends messages to the parent process, which owns all
+// module access and execution capability.
 
 "use strict";
 
@@ -54,7 +55,6 @@ delete globalThis.queueMicrotask;
 
 let _requestId = 0;
 const _pending = new Map(); // id → { resolve, reject }
-let _createIdentityCount = 0;
 
 // IPC round-trip: send request to parent, wait for matching response
 function _toolkitCall(method, args) {
@@ -65,63 +65,41 @@ function _toolkitCall(method, args) {
   });
 }
 
-// Mutable toolkit object — personaName will be set from execute message before freeze
 const toolkit = {
-  personaName: null, // set per-execution from parent message
-
-  async signedPost(path, body) {
-    return _toolkitCall("signedPost", [path, body]);
+  async callFunction(fnName, args) {
+    return _toolkitCall("callFunction", [fnName, args]);
   },
 
-  async rawPost(path, body, headers) {
-    return _toolkitCall("rawPost", [path, body, headers]);
+  async callFunctionAsync(fnName, args) {
+    return _toolkitCall("callFunctionAsync", [fnName, args]);
   },
 
-  async rawGet(path) {
-    return _toolkitCall("rawGet", [path]);
+  async getExports() {
+    return _toolkitCall("getExports", []);
   },
 
-  async createIdentity() {
-    _createIdentityCount++;
-    if (_createIdentityCount > 3) {
-      throw new Error("createIdentity() cap exceeded: maximum 3 identities per attack execution");
-    }
-    return _toolkitCall("createIdentity", []);
+  async getSourceCode() {
+    return _toolkitCall("getSourceCode", []);
   },
 
-  async signedPostAs(identity, path, body) {
-    return _toolkitCall("signedPostAs", [identity, path, body]);
+  async assertEqual(actual, expected, label) {
+    return _toolkitCall("assertEqual", [actual, expected, label]);
   },
 
-  async sleep(ms) {
-    const capped = Math.min(ms, 5000);
-    return new Promise((resolve) => {
-      const end = Date.now() + capped;
-      function check() {
-        if (Date.now() >= end) {
-          resolve();
-        } else {
-          Promise.resolve().then(check);
-        }
-      }
-      check();
-    });
+  async assertThrows(fnName, args, label) {
+    return _toolkitCall("assertThrows", [fnName, args, label]);
   },
 
-  async getReputation(identityId) {
-    return _toolkitCall("getReputation", [identityId]);
+  async assertType(value, expectedType, label) {
+    return _toolkitCall("assertType", [value, expectedType, label]);
   },
 
-  async getBondStatus(bondId) {
-    return _toolkitCall("getBondStatus", [bondId]);
+  async assertCondition(condition, label, details) {
+    return _toolkitCall("assertCondition", [condition, label, details]);
   },
 
-  async getActionStatus(actionId) {
-    return _toolkitCall("getActionStatus", [actionId]);
-  },
-
-  async checkDashboardForRawHtml() {
-    return _toolkitCall("checkDashboardForRawHtml", []);
+  async measureTime(fnName, args, iterations) {
+    return _toolkitCall("measureTime", [fnName, args, iterations]);
   },
 
   log(message) {
@@ -129,15 +107,11 @@ const toolkit = {
   },
 };
 
-// NOTE: toolkit is NOT frozen here — personaName is set from the execute message.
-// It gets frozen after personaName is set, inside the execute handler below.
+Object.freeze(toolkit);
 
 // ---------------------------------------------------------------------------
 // Step 4: Listen for messages from parent via IPC
-// Handles both "execute" (code to run) and "toolkit-response/toolkit-error" (IPC responses)
 // ---------------------------------------------------------------------------
-
-let _toolkitFrozen = false;
 
 _on("message", async (msg) => {
   if (!msg || typeof msg !== "object") return;
@@ -163,15 +137,8 @@ _on("message", async (msg) => {
 
   // Handle execute command
   if (msg.type === "execute" && typeof msg.code === "string") {
-    // Set personaName from the message (if provided) and freeze toolkit
-    if (!_toolkitFrozen) {
-      toolkit.personaName = typeof msg.personaName === "string" ? msg.personaName : null;
-      Object.freeze(toolkit);
-      _toolkitFrozen = true;
-    }
-
     try {
-      const fn = new _Function("toolkit", msg.code + "\nreturn novelAttack(toolkit);");
+      const fn = new _Function("toolkit", msg.code + "\nreturn generatedTests(toolkit);");
       const result = await fn(toolkit);
       _send({ type: "result", result });
     } catch (err) {
