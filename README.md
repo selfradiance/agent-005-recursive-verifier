@@ -80,10 +80,18 @@ Four layers of defense (ported from Agent 004's red team simulator):
 - Sync infinite loops in target code cannot be preempted (15s hard timeout kills the round)
 - No code coverage instrumentation (deferred to v0.2.0)
 
+## Tech Stack
+
+- **TypeScript** on **Node.js 22+** (permission flags require 22)
+- **Vitest** — 55 tests across 3 files (module-host, validator, scorer)
+- **Anthropic Claude API** (`claude-sonnet-4-20250514`) via `@anthropic-ai/sdk`
+- **dotenv** for environment config
+
 ## Tests
 
 ```bash
 npm test
+# 55 tests across 3 files: module-host (32), validator (15), scorer (8)
 ```
 
 ## License
