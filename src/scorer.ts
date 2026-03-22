@@ -47,7 +47,6 @@ const EDGE_CLASSES: Record<string, (value: unknown) => boolean> = {
     /[<>"'\\]|\n|\0|[\u{10000}-\u{10FFFF}]/u.test(v),
   boolean: (v) => v === true || v === false,
   NaN: (v) => typeof v === "number" && Number.isNaN(v),
-  type_mismatch: (_v) => false, // Heuristic — checked separately below
 };
 
 function detectEdgeCases(callLog: ToolkitCallLog[]): string[] {
@@ -58,19 +57,11 @@ function detectEdgeCases(callLog: ToolkitCallLog[]): string[] {
 
     for (const arg of entry.args) {
       for (const [className, checker] of Object.entries(EDGE_CLASSES)) {
-        if (className === "type_mismatch") continue;
         if (checker(arg)) {
           coveredClasses.add(className);
         }
       }
 
-      // type_mismatch heuristic: string passed as an argument
-      // to a function that previously received numbers
-      if (typeof arg === "string" && arg !== "") {
-        // Simple heuristic: if a string is passed as an argument, flag it
-        // More sophisticated detection would track per-function arg types
-        coveredClasses.add("type_mismatch");
-      }
     }
   }
 
@@ -153,5 +144,5 @@ export function formatScoreForReasoner(score: RoundScore, round: number): string
 - Timeouts: ${score.timeouts}, Invalid tests: ${score.invalidTests}
 - Functions tested: ${score.uniqueFunctionsTested.join(", ")} (${score.uniqueFunctionsTested.length} total)
 - Untested: ${score.functionsNotTested.length > 0 ? score.functionsNotTested.join(", ") : "(none)"}
-- Edge case classes covered: ${score.edgeCaseClassesCovered.join(", ")} (${score.edgeCaseCount} of 10)`;
+- Edge case classes covered: ${score.edgeCaseClassesCovered.join(", ")} (${score.edgeCaseCount} of 9)`;
 }

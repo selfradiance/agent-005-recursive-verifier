@@ -120,13 +120,18 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // Validate --rounds
+  if (!Number.isInteger(args.rounds) || args.rounds < 1) {
+    const rawIdx = process.argv.indexOf("--rounds");
+    const rawValue = rawIdx >= 0 ? process.argv[rawIdx + 1] ?? "undefined" : "undefined";
+    console.error(`Error: --rounds must be a positive integer (got: ${rawValue})`);
+    process.exit(1);
+  }
+
   // Round cap
   if (args.rounds > 10) {
     console.log("Rounds capped at 10 (maximum for v0.1.0).");
     args.rounds = 10;
-  }
-  if (args.rounds < 1) {
-    args.rounds = 1;
   }
 
   try {

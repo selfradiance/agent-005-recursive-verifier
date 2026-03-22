@@ -63,7 +63,7 @@ describe("scoreRound", () => {
     expect(score.edgeCaseClassesCovered).toContain("nullish");
     expect(score.edgeCaseClassesCovered).toContain("zero");
     expect(score.edgeCaseClassesCovered).toContain("negative");
-    expect(score.edgeCaseClassesCovered).toContain("type_mismatch");
+    expect(score.edgeCaseClassesCovered).not.toContain("type_mismatch");
   });
 
   it("detects empty edge cases", () => {
@@ -127,6 +127,6 @@ describe("formatScoreForReasoner", () => {
     expect(formatted).toContain("3 passed");
     expect(formatted).toContain("add, subtract");
     expect(formatted).toContain("divide");
-    expect(formatted).toContain("2 of 10");
+    expect(formatted).toContain("2 of 9");
   });
 });

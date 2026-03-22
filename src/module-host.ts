@@ -284,12 +284,15 @@ export class ModuleHost {
       };
     }
 
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const result = fn(...args);
-      // If it returns a promise, await it
-      if (result && typeof result === "object" && typeof result.then === "function") {
-        await result;
-      }
+      const resultPromise = Promise.resolve().then(() => fn(...args));
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("TIMEOUT")), 5000);
+      });
+
+      await Promise.race([resultPromise, timeoutPromise]);
+      clearTimeout(timer);
       return {
         passed: false,
         threwError: false,
@@ -298,10 +301,23 @@ export class ModuleHost {
         status: "failed_assertion",
       };
     } catch (err) {
+      clearTimeout(timer);
+      const message = err instanceof Error ? err.message : String(err);
+
+      if (message === "TIMEOUT") {
+        return {
+          passed: false,
+          threwError: false,
+          errorMessage: "Function execution exceeded 5000ms",
+          label,
+          status: "timeout",
+        };
+      }
+
       return {
         passed: true,
         threwError: true,
-        errorMessage: err instanceof Error ? err.message : String(err),
+        errorMessage: message,
         label,
         status: "passed",
       };
@@ -349,12 +365,28 @@ export class ModuleHost {
 
     for (let i = 0; i < cappedIterations; i++) {
       const start = performance.now();
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        const result = fn(...args);
-        if (result && typeof result === "object" && typeof result.then === "function") {
-          await result;
+        const resultPromise = Promise.resolve().then(() => fn(...args));
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("TIMEOUT")), 5000);
+        });
+
+        await Promise.race([resultPromise, timeoutPromise]);
+        clearTimeout(timer);
+      } catch (err) {
+        clearTimeout(timer);
+        const message = err instanceof Error ? err.message : String(err);
+        if (message === "TIMEOUT") {
+          return {
+            min: 0,
+            max: 0,
+            avg: 0,
+            median: 0,
+            iterations: i,
+            status: "timeout" as Status,
+          };
         }
-      } catch {
         // Still record the time even if it throws
       }
       times.push(performance.now() - start);

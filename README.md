@@ -62,7 +62,7 @@ Each round produces:
 - **Timeouts** — potential infinite loops or performance issues
 - **Invalid tests** — generator quality (bad test, not a target bug)
 - **Unique functions tested** — breadth
-- **Edge cases covered** — nullish, zero, negative, empty, large numeric, special chars, NaN, type mismatch, boolean, long string (10 classes)
+- **Edge cases covered** — nullish, zero, negative, empty, large numeric, special chars, NaN, boolean, long string (9 classes)
 
 ## Sandbox Security
 
@@ -79,6 +79,7 @@ Four layers of defense (ported from Agent 004's red team simulator):
 - State contamination across rounds (module stays loaded; internal state carries over)
 - Sync infinite loops in target code cannot be preempted (15s hard timeout kills the round)
 - No code coverage instrumentation (deferred to v0.2.0)
+- Sandbox validator bypass via property reconstruction — the string-level validator can be bypassed via property access patterns like `obj["constructor"]` to reconstruct blocked builtins. This is by design: the validator catches accidental bad code from the generator, not adversarial obfuscation. The real security boundaries are global nullification (dangerous globals deleted before generated code runs) and Node 22 permission flags. Identified by Codex audit.
 
 ## Tech Stack
 
