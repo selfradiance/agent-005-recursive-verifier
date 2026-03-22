@@ -188,4 +188,32 @@ async function generatedTests(toolkit) {
     const perf = result.result!.results[0] as any;
     expect(perf.trending).toBe(false);
   }, 30_000);
+
+  it("clamps iterations to maximum 500", async () => {
+    const code = `
+async function generatedTests(toolkit) {
+  const perf = await toolkit.comparePerformance("add", [1, 2], [3, 4], 9999);
+  return { testsRun: 1, testsPassed: 1, testsFailed: 0, results: [perf] };
+}`;
+    const result = await runProofCode(code);
+    expect(result.success).toBe(true);
+    const perf = result.result!.results[0] as any;
+    expect(typeof perf.ratio).toBe("number");
+  }, 30_000);
+});
+
+describe("callFunctionMany() caps", () => {
+  it("caps argSets to 100 entries", async () => {
+    // Generate 120 arg sets — should be truncated to 100
+    const argSetsCode = Array.from({ length: 120 }, (_, i) => `[${i}, 1]`).join(", ");
+    const code = `
+async function generatedTests(toolkit) {
+  const batch = await toolkit.callFunctionMany("add", [${argSetsCode}]);
+  return { testsRun: 1, testsPassed: 1, testsFailed: 0, results: [{ count: batch.length }] };
+}`;
+    const result = await runProofCode(code);
+    expect(result.success).toBe(true);
+    const countResult = result.result!.results[0] as any;
+    expect(countResult.count).toBe(100);
+  }, 20_000);
 });

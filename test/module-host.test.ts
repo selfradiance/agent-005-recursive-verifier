@@ -14,8 +14,8 @@ describe("normalizeValue", () => {
     expect(normalizeValue(null)).toBe(null);
   });
 
-  it("normalizes undefined to string marker", () => {
-    expect(normalizeValue(undefined)).toBe("[undefined]");
+  it("normalizes undefined to typed marker", () => {
+    expect(normalizeValue(undefined)).toEqual({ __type: "undefined" });
   });
 
   it("normalizes BigInt", () => {
@@ -60,11 +60,11 @@ describe("normalizeValue", () => {
   });
 
   it("normalizes plain objects recursively", () => {
-    expect(normalizeValue({ a: 1, b: undefined })).toEqual({ a: 1, b: "[undefined]" });
+    expect(normalizeValue({ a: 1, b: undefined })).toEqual({ a: 1, b: { __type: "undefined" } });
   });
 
   it("normalizes arrays recursively", () => {
-    expect(normalizeValue([1, undefined, "hello"])).toEqual([1, "[undefined]", "hello"]);
+    expect(normalizeValue([1, undefined, "hello"])).toEqual([1, { __type: "undefined" }, "hello"]);
   });
 
   it("normalizes class instances", () => {
@@ -80,6 +80,14 @@ describe("normalizeValue", () => {
 
   it("normalizes NaN", () => {
     expect(normalizeValue(NaN)).toEqual({ __type: "NaN" });
+  });
+
+  it("normalizes Infinity", () => {
+    expect(normalizeValue(Infinity)).toEqual({ __type: "Infinity" });
+  });
+
+  it("normalizes -Infinity", () => {
+    expect(normalizeValue(-Infinity)).toEqual({ __type: "-Infinity" });
   });
 });
 

@@ -101,7 +101,7 @@ ${input.priorResults}
 
 FOCUS THIS ROUND ON:
 - Functions not yet tested
-- Edge case classes not yet covered (nullish, zero, negative, empty, large_numeric, special_chars, NaN, type_mismatch, boolean, long_string)
+- Edge case classes not yet covered (nullish, zero, negative, empty, large_numeric, special_chars, NaN, boolean, long_string)
 - Investigating bug candidates from prior rounds
 - Deeper testing of functions that only had happy-path coverage
 - If prior round had many invalid_test results, simplify your hypotheses`;

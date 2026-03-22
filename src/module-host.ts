@@ -71,9 +71,13 @@ export function normalizeValue(value: unknown, _seen?: WeakSet<object>): unknown
   const seen = _seen ?? new WeakSet();
   // Primitives
   if (value === null) return null;
-  if (value === undefined) return "[undefined]";
+  if (value === undefined) return { __type: "undefined" };
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    if (typeof value === "number" && Number.isNaN(value)) return { __type: "NaN" };
+    if (typeof value === "number") {
+      if (Number.isNaN(value)) return { __type: "NaN" };
+      if (value === Infinity) return { __type: "Infinity" };
+      if (value === -Infinity) return { __type: "-Infinity" };
+    }
     return value;
   }
   if (typeof value === "bigint") return { __type: "BigInt", value: `${value}n` };

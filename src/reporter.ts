@@ -32,7 +32,7 @@ function buildReportPrompt(runResult: RunResult): string {
 - Errors: ${r.score.errorsCaught} | Timeouts: ${r.score.timeouts} | Invalid: ${r.score.invalidTests}
 - Functions tested: ${r.score.uniqueFunctionsTested.join(", ")}
 - Functions not tested: ${r.score.functionsNotTested.join(", ") || "(none)"}
-- Edge cases covered: ${r.score.edgeCaseClassesCovered.join(", ")} (${r.score.edgeCaseCount}/10)
+- Edge cases covered: ${r.score.edgeCaseClassesCovered.join(", ")} (${r.score.edgeCaseCount}/9)
 - Bug candidates:
 ${bugCandidates}`;
   }).join("\n\n");

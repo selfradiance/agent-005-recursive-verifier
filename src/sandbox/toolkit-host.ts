@@ -72,9 +72,10 @@ const handlers: Record<string, MethodHandler> = {
   },
 
   async callFunctionMany(args, moduleHost) {
-    const [fnName, argSets] = args as [string, unknown[][]];
+    const [fnName, rawArgSets] = args as [string, unknown[][]];
+    const argSets = (rawArgSets ?? []).slice(0, 100);
     const results = [];
-    for (let i = 0; i < (argSets ?? []).length; i++) {
+    for (let i = 0; i < argSets.length; i++) {
       try {
         const callResult = await moduleHost.callFunction(fnName, argSets[i] ?? []);
         if (callResult.threwError) {
@@ -91,7 +92,7 @@ const handlers: Record<string, MethodHandler> = {
 
   async comparePerformance(args, moduleHost) {
     const [fnName, smallArgs, largeArgs, rawIterations] = args as [string, unknown[], unknown[], number | undefined];
-    const iterations = Math.max(rawIterations ?? 50, 50);
+    const iterations = Math.min(Math.max(rawIterations ?? 50, 50), 500);
 
     // Warm-up: run once with each arg set, discard results
     await moduleHost.callFunction(fnName, smallArgs ?? []);
