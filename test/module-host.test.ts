@@ -89,6 +89,7 @@ describe("normalizeValue", () => {
 
 describe("ModuleHost", () => {
   const samplePath = path.resolve(__dirname, "../examples/sample-math.ts");
+  const statefulPath = path.resolve(__dirname, "../examples/sample-stateful.ts");
 
   it("loads a module and discovers exports", async () => {
     const host = new ModuleHost();
@@ -175,36 +176,6 @@ describe("ModuleHost", () => {
     expect(result.status).toBe("failed_assertion");
   });
 
-  it("assertType passes for correct type", async () => {
-    const host = new ModuleHost();
-    await host.load(samplePath);
-    const result = host.assertType(42, "number", "42 is number");
-    expect(result.passed).toBe(true);
-    expect(result.status).toBe("passed");
-  });
-
-  it("assertType fails for wrong type", async () => {
-    const host = new ModuleHost();
-    await host.load(samplePath);
-    const result = host.assertType("hello", "number", "hello is number");
-    expect(result.passed).toBe(false);
-    expect(result.actualType).toBe("string");
-  });
-
-  it("assertType handles null", async () => {
-    const host = new ModuleHost();
-    await host.load(samplePath);
-    const result = host.assertType(null, "null", "null is null");
-    expect(result.passed).toBe(true);
-  });
-
-  it("assertType handles array", async () => {
-    const host = new ModuleHost();
-    await host.load(samplePath);
-    const result = host.assertType([1, 2], "array", "is array");
-    expect(result.passed).toBe(true);
-  });
-
   it("assertCondition passes for true", () => {
     const host = new ModuleHost();
     const result = host.assertCondition(true, "always true");
@@ -244,5 +215,37 @@ describe("ModuleHost", () => {
     await host.load(samplePath);
     const result = await host.measureTime("nonExistent", [], 5);
     expect(result.status).toBe("invalid_test");
+  });
+
+  it("reloadFresh() resets module state", async () => {
+    const host = new ModuleHost();
+    await host.load(statefulPath);
+
+    // Confirm exports work
+    const exports = host.getExports();
+    expect(exports).toContain("increment");
+    expect(exports).toContain("getCount");
+
+    // Mutate state: increment counter
+    const r1 = await host.callFunction("increment", []);
+    expect(r1.result).toBe(1);
+    const r2 = await host.callFunction("increment", []);
+    expect(r2.result).toBe(2);
+    const r3 = await host.callFunction("getCount", []);
+    expect(r3.result).toBe(2);
+
+    // Reload fresh — state should reset
+    await host.reloadFresh();
+
+    // Confirm the module is a fresh instance with counter back to 0
+    const r4 = await host.callFunction("getCount", []);
+    expect(r4.result).toBe(0);
+    const r5 = await host.callFunction("increment", []);
+    expect(r5.result).toBe(1);
+  });
+
+  it("reloadFresh() throws if module not loaded", async () => {
+    const host = new ModuleHost();
+    await expect(host.reloadFresh()).rejects.toThrow("Module not loaded");
   });
 });

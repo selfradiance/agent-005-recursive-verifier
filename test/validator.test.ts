@@ -123,4 +123,48 @@ async function generatedTests(toolkit) {
     expect(result.valid).toBe(false);
     expect(result.reason).toContain("Unbounded loop");
   });
+
+  // -------------------------------------------------------------------------
+  // Review mode tests
+  // -------------------------------------------------------------------------
+
+  const validReviewCode = `
+async function generatedProofs(toolkit) {
+  await toolkit.prove("H1", async () => {
+    const r = await toolkit.callFunction("add", [1, 2]);
+    return { confirmed: true, evidence: "works" };
+  });
+}`;
+
+  it("review mode accepts generatedProofs signature", () => {
+    const result = validateGeneratedCode(validReviewCode, "review");
+    expect(result.valid).toBe(true);
+  });
+
+  it("review mode rejects generatedTests signature", () => {
+    const result = validateGeneratedCode(validCode, "review");
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain("generatedProofs");
+  });
+
+  it("review mode rejects code without toolkit.prove()", () => {
+    const code = `
+async function generatedProofs(toolkit) {
+  await toolkit.callFunction("add", [1, 2]);
+}`;
+    const result = validateGeneratedCode(code, "review");
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain("toolkit.prove()");
+  });
+
+  it("test mode still accepts generatedTests", () => {
+    const result = validateGeneratedCode(validCode, "test");
+    expect(result.valid).toBe(true);
+  });
+
+  it("test mode rejects generatedProofs signature", () => {
+    const result = validateGeneratedCode(validReviewCode, "test");
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain("generatedTests");
+  });
 });

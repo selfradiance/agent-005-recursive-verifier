@@ -1,6 +1,8 @@
 // validator.ts — Checks generated test code against blocklist, structural rules,
 // and size limits before execution in the sandbox.
 
+import type { Mode } from "../cli.js";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -76,7 +78,7 @@ const STANDALONE_FUNCTION_PATTERN = /(?<![a-zA-Z])Function\s*\(/;
 // validateGeneratedCode
 // ---------------------------------------------------------------------------
 
-export function validateGeneratedCode(code: string): ValidationResult {
+export function validateGeneratedCode(code: string, mode: Mode = "test"): ValidationResult {
   // 1. Size check (10KB max)
   if (code.length > 10_000) {
     return { valid: false, reason: "Code exceeds maximum length of 10KB" };
@@ -111,20 +113,30 @@ export function validateGeneratedCode(code: string): ValidationResult {
     }
   }
 
-  // 3. Function signature check — must have exactly one generatedTests(toolkit)
-  const sigPattern = "async function generatedTests(toolkit)";
+  // 3. Function signature check — mode-dependent
+  const sigPattern = mode === "review"
+    ? "async function generatedProofs(toolkit)"
+    : "async function generatedTests(toolkit)";
   const firstIdx = code.indexOf(sigPattern);
   if (firstIdx === -1) {
-    return { valid: false, reason: "Missing required function signature: async function generatedTests(toolkit)" };
+    return { valid: false, reason: `Missing required function signature: ${sigPattern}` };
   }
   const secondIdx = code.indexOf(sigPattern, firstIdx + sigPattern.length);
   if (secondIdx !== -1) {
     return { valid: false, reason: "Multiple function definitions found" };
   }
 
-  // 4. Return shape check — must reference testsRun, testsPassed, testsFailed, results
-  if (!code.includes("testsRun") || !code.includes("testsPassed") || !code.includes("testsFailed") || !code.includes("results")) {
-    return { valid: false, reason: "Generated function must return { testsRun, testsPassed, testsFailed, results }" };
+  // 4. Return shape check — mode-dependent
+  if (mode === "review") {
+    // Review mode: must contain at least one toolkit.prove( call
+    if (!code.includes("toolkit.prove(")) {
+      return { valid: false, reason: "Review mode proof scripts must contain at least one toolkit.prove() call" };
+    }
+  } else {
+    // Test mode: must reference testsRun, testsPassed, testsFailed, results
+    if (!code.includes("testsRun") || !code.includes("testsPassed") || !code.includes("testsFailed") || !code.includes("results")) {
+      return { valid: false, reason: "Generated function must return { testsRun, testsPassed, testsFailed, results }" };
+    }
   }
 
   // 5. Nesting depth check (max 6 levels — 1 for function + 3 for loops + margin)
@@ -142,7 +154,8 @@ export function validateGeneratedCode(code: string): ValidationResult {
     return { valid: false, reason: "Code exceeds maximum nesting depth of 6" };
   }
 
-  // 6. Toolkit call count check (max 20)
+  // 6. Toolkit call count check (test: max 20, review: max 50)
+  const maxToolkitCalls = mode === "review" ? 50 : 20;
   let toolkitCount = 0;
   let searchIdx = 0;
   while (true) {
@@ -151,8 +164,8 @@ export function validateGeneratedCode(code: string): ValidationResult {
     toolkitCount++;
     searchIdx = found + 8;
   }
-  if (toolkitCount > 20) {
-    return { valid: false, reason: "Code exceeds maximum of 20 toolkit calls" };
+  if (toolkitCount > maxToolkitCalls) {
+    return { valid: false, reason: `Code exceeds maximum of ${maxToolkitCalls} toolkit calls` };
   }
 
   // 7. Unbounded loop check

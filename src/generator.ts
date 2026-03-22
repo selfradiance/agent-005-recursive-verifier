@@ -29,7 +29,6 @@ The code will run in a sandbox with ONLY these toolkit methods:
 - toolkit.getSourceCode() → string
 - toolkit.assertEqual(actual, expected, label) → { passed, actual, expected, label, status }
 - toolkit.assertThrows(fnName, args, label) → { passed, threwError, errorMessage, label, status }
-- toolkit.assertType(value, expectedType, label) → { passed, actualType, expectedType, label, status }
 - toolkit.assertCondition(condition, label, details?) → { passed, label, details, status }
 - toolkit.measureTime(fnName, args, iterations) → { min, max, avg, median, iterations, status }
 - toolkit.log(message) → void
@@ -62,6 +61,12 @@ async function generatedTests(toolkit) {
     results
   };
 }
+
+IMPORTANT — IPC SERIALIZATION:
+The sandbox serializes NaN as { __type: "NaN" }, Infinity as { __type: "Infinity" },
+and undefined as { __type: "undefined" } for IPC transport. When checking for these
+values, compare against the serialized form (e.g., result.__type === "NaN"), not the
+JavaScript primitive (e.g., Number.isNaN(result) will return false).
 
 CONSTRAINTS:
 - Use ONLY toolkit methods. No require, import, fetch, process, eval.

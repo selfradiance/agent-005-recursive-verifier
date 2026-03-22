@@ -6,15 +6,19 @@
 import "dotenv/config";
 import { run } from "./runner.js";
 import { generateReport } from "./reporter.js";
+import { generateReviewReport } from "./reporter-review.js";
 
 // ---------------------------------------------------------------------------
 // Argument parsing (minimal, no external deps)
 // ---------------------------------------------------------------------------
 
+export type Mode = "test" | "review";
+
 interface CliArgs {
   file: string;
   functions?: string[];
   rounds: number;
+  mode: Mode;
   verbose: boolean;
   help: boolean;
 }
@@ -23,6 +27,7 @@ function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = {
     file: "",
     rounds: 3,
+    mode: "test",
     verbose: false,
     help: false,
   };
@@ -37,6 +42,9 @@ function parseArgs(argv: string[]): CliArgs {
         break;
       case "--rounds":
         args.rounds = parseInt(argv[++i] ?? "3", 10);
+        break;
+      case "--mode":
+        args.mode = (argv[++i] ?? "test") as Mode;
         break;
       case "--verbose":
         args.verbose = true;
@@ -57,14 +65,14 @@ function parseArgs(argv: string[]): CliArgs {
 
 function printHelp(): void {
   console.log(`
-Agent 005 — Recursive Verifier v0.1.0
-Mode: Test Generation
+Agent 005 — Recursive Verifier v0.2.0
 
 USAGE:
   npx tsx src/cli.ts --file <path> [options]
 
 OPTIONS:
   --file <path>        Path to target .ts or .js module (required)
+  --mode <mode>        "test" (v0.1.0 test generation) or "review" (v0.2.0 code review) (default: test)
   --functions <names>  Comma-separated function names to focus on
   --rounds <n>         Number of recursive rounds (default: 3, max: 10)
   --verbose            Show generated test code before execution
@@ -84,11 +92,16 @@ EXAMPLES:
 // Startup banner
 // ---------------------------------------------------------------------------
 
-function printBanner(file: string, exportCount: number, rounds: number): void {
+const MODE_LABELS: Record<Mode, string> = {
+  test: "Test Generation",
+  review: "Code Review",
+};
+
+function printBanner(file: string, exportCount: number, rounds: number, mode: Mode): void {
   console.log(`
 ═══════════════════════════════════════════════════════════
-  AGENT 005 — RECURSIVE VERIFIER v0.1.0
-  Mode: Test Generation
+  AGENT 005 — RECURSIVE VERIFIER v0.2.0
+  Mode: ${MODE_LABELS[mode]}
   Target: ${file} (${exportCount} exports)
   Rounds: ${rounds}
   ⚠️  Target module runs unsandboxed. Trusted code only.
@@ -120,6 +133,12 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // Validate --mode
+  if (args.mode !== "test" && args.mode !== "review") {
+    console.error(`Error: --mode must be "test" or "review" (got: "${args.mode}")`);
+    process.exit(1);
+  }
+
   // Validate --rounds
   if (!Number.isInteger(args.rounds) || args.rounds < 1) {
     const rawIdx = process.argv.indexOf("--rounds");
@@ -130,7 +149,7 @@ async function main(): Promise<void> {
 
   // Round cap
   if (args.rounds > 10) {
-    console.log("Rounds capped at 10 (maximum for v0.1.0).");
+    console.log("Rounds capped at 10 (maximum for v0.2.0).");
     args.rounds = 10;
   }
 
@@ -141,7 +160,7 @@ async function main(): Promise<void> {
     await moduleHost.load(args.file);
     const exports = moduleHost.getExports();
 
-    printBanner(args.file, exports.length, args.rounds);
+    printBanner(args.file, exports.length, args.rounds, args.mode);
 
     if (exports.length === 0) {
       console.log("⚠️  No exported functions found in target module. Nothing to test.");
@@ -156,13 +175,28 @@ async function main(): Promise<void> {
       functions: args.functions,
       rounds: args.rounds,
       verbose: args.verbose,
+      mode: args.mode,
       moduleHost,
     });
 
     // Generate final report
     console.log("\n── Final Report ──────────────────────────────────────\n");
-    const report = await generateReport(result);
-    console.log(report.summary);
+    if (args.mode === "review") {
+      const reviewScores = result.rounds
+        .filter((r) => r.reviewScore !== null)
+        .map((r) => r.reviewScore!);
+      const report = await generateReviewReport({
+        allVerdicts: result.allVerdicts,
+        allHypotheses: result.allHypotheses,
+        allScores: reviewScores,
+        allFindings: result.allFindings,
+        roundCount: result.rounds.length,
+      });
+      console.log(report.summary);
+    } else {
+      const report = await generateReport(result);
+      console.log(report.summary);
+    }
     console.log("\n═══════════════════════════════════════════════════════════\n");
 
   } catch (err) {

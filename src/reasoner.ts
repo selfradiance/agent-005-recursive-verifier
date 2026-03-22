@@ -50,7 +50,7 @@ ${functionList}
 YOUR TASK:
 Produce 3-8 test hypotheses. Each hypothesis must be falsifiable using ONLY the
 available toolkit methods (callFunction, assertEqual, assertThrows, assertCondition,
-assertType, measureTime).
+measureTime).
 
 For each hypothesis, specify:
 1. function — which exported function to test
@@ -64,6 +64,12 @@ FOCUS ON (in priority order):
 2. Edge cases — empty inputs, zero, null, negative numbers, boundary values
 3. Error paths — what inputs should cause errors?
 4. Type coercion — what happens with wrong types?
+
+IMPORTANT — IPC SERIALIZATION:
+The sandbox serializes NaN as { __type: "NaN" }, Infinity as { __type: "Infinity" },
+and undefined as { __type: "undefined" } for IPC transport. When checking for these
+values, compare against the serialized form (e.g., result.__type === "NaN"), not the
+JavaScript primitive (e.g., Number.isNaN(result) will return false).
 
 CONSTRAINT: Prefer tests where expected behavior is explicit in the code, type
 annotations, naming, thrown errors, or obvious arithmetic/string semantics.

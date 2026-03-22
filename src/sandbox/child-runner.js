@@ -95,10 +95,6 @@ const toolkit = {
     return _toolkitCall("assertThrows", [fnName, args, label]);
   },
 
-  async assertType(value, expectedType, label) {
-    return _toolkitCall("assertType", [value, expectedType, label]);
-  },
-
   async assertCondition(condition, label, details) {
     return _toolkitCall("assertCondition", [condition, label, details]);
   },
@@ -107,8 +103,57 @@ const toolkit = {
     return _toolkitCall("measureTime", [fnName, args, iterations]);
   },
 
+  async callFunctionMany(fnName, argSets) {
+    return _toolkitCall("callFunctionMany", [fnName, argSets]);
+  },
+
+  async comparePerformance(fnName, smallArgs, largeArgs, iterations) {
+    return _toolkitCall("comparePerformance", [fnName, smallArgs, largeArgs, iterations]);
+  },
+
   log(message) {
     _send({ type: "log", message: String(message) });
+  },
+
+  async prove(hypothesisId, asyncFn) {
+    const start = Date.now();
+    let verdict;
+
+    try {
+      const result = await asyncFn();
+
+      // Validate result shape
+      if (!result || typeof result !== "object" || typeof result.confirmed !== "boolean" || typeof result.evidence !== "string") {
+        verdict = {
+          hypothesisId,
+          verdict: "inconclusive",
+          evidence: ("Proof callback returned malformed result: " + JSON.stringify(result)).slice(0, 500),
+          durationMs: Date.now() - start,
+          failureMode: "bad_proof",
+        };
+      } else {
+        // Truncate evidence to 500 chars
+        const evidence = result.evidence.length > 500 ? result.evidence.slice(0, 500) : result.evidence;
+        verdict = {
+          hypothesisId,
+          verdict: result.confirmed ? "confirmed" : "refuted",
+          evidence,
+          durationMs: Date.now() - start,
+        };
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      verdict = {
+        hypothesisId,
+        verdict: "inconclusive",
+        evidence: message.length > 500 ? message.slice(0, 500) : message,
+        durationMs: Date.now() - start,
+        failureMode: "bad_proof",
+      };
+    }
+
+    _send({ type: "prove-result", verdict });
+    return verdict;
   },
 };
 
@@ -142,8 +187,9 @@ _on("message", async (msg) => {
 
   // Handle execute command
   if (msg.type === "execute" && typeof msg.code === "string") {
+    const fnName = msg.mode === "review" ? "generatedProofs" : "generatedTests";
     try {
-      const fn = new _Function("toolkit", msg.code + "\nreturn generatedTests(toolkit);");
+      const fn = new _Function("toolkit", msg.code + "\nreturn " + fnName + "(toolkit);");
       const result = await fn(toolkit);
       _send({ type: "result", result });
     } catch (err) {

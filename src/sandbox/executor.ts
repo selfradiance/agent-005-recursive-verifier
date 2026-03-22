@@ -7,6 +7,8 @@ import os from "node:os";
 import path from "node:path";
 import { attachToolkitHost, type ToolkitCallLog } from "./toolkit-host.js";
 import type { ModuleHost } from "../module-host.js";
+import type { ProofVerdict } from "../types.js";
+import type { Mode } from "../cli.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -31,10 +33,12 @@ export interface SandboxResult {
   logs: string[];
   durationMs: number;
   callLog: ToolkitCallLog[];
+  proofVerdicts: ProofVerdict[];
 }
 
 export interface ExecutorOptions {
   moduleHost: ModuleHost;
+  mode?: Mode;
 }
 
 // ---------------------------------------------------------------------------
@@ -58,6 +62,7 @@ export async function executeInSandbox(
   const startTime = Date.now();
   const logs: string[] = [];
   let callLog: ToolkitCallLog[] = [];
+  let proofVerdicts: ProofVerdict[] = [];
   let tempDir: string | undefined;
 
   try {
@@ -98,6 +103,7 @@ export async function executeInSandbox(
           logs,
           durationMs: Date.now() - startTime,
           callLog: [],
+          proofVerdicts: [],
         });
         return;
       }
@@ -107,6 +113,7 @@ export async function executeInSandbox(
         moduleHost: options.moduleHost,
       });
       callLog = hostResult.callLog;
+      proofVerdicts = hostResult.proofVerdicts;
 
       // Step 4: Set up 15-second hard timeout
       const timer = setTimeout(() => {
@@ -118,6 +125,7 @@ export async function executeInSandbox(
           logs,
           durationMs: Date.now() - startTime,
           callLog,
+          proofVerdicts,
         });
       }, TIMEOUT_MS);
 
@@ -143,6 +151,7 @@ export async function executeInSandbox(
             logs,
             durationMs: Date.now() - startTime,
             callLog,
+            proofVerdicts,
           });
           return;
         }
@@ -156,6 +165,7 @@ export async function executeInSandbox(
             logs,
             durationMs: Date.now() - startTime,
             callLog,
+            proofVerdicts,
           });
           return;
         }
@@ -170,6 +180,7 @@ export async function executeInSandbox(
           logs,
           durationMs: Date.now() - startTime,
           callLog,
+          proofVerdicts,
         });
       });
 
@@ -181,11 +192,12 @@ export async function executeInSandbox(
           logs,
           durationMs: Date.now() - startTime,
           callLog,
+          proofVerdicts,
         });
       });
 
       // Step 7: Send the code to execute
-      child.send({ type: "execute", code });
+      child.send({ type: "execute", code, mode: options.mode ?? "test" });
     });
 
     return result;
@@ -196,6 +208,7 @@ export async function executeInSandbox(
       logs,
       durationMs: Date.now() - startTime,
       callLog,
+      proofVerdicts,
     };
   } finally {
     // Step 8: Cleanup temp directory

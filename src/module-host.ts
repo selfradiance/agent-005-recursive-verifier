@@ -163,6 +163,30 @@ export class ModuleHost {
     this.module = await import(absolutePath);
   }
 
+  async reloadFresh(): Promise<void> {
+    if (!this.filePath) throw new Error("Module not loaded — call load() first");
+
+    // Re-read source code (in case file changed)
+    this.sourceCode = fs.readFileSync(this.filePath, "utf-8");
+
+    // To get a truly fresh module instance (with reset module-level state),
+    // copy the source to a temp file with a unique name and import that.
+    // This bypasses all module caching (ESM, CJS, vitest, tsx).
+    const ext = path.extname(this.filePath);
+    const dir = path.dirname(this.filePath);
+    const base = path.basename(this.filePath, ext);
+    const tempName = `${base}.__reload_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`;
+    const tempPath = path.join(dir, tempName);
+
+    fs.copyFileSync(this.filePath, tempPath);
+    try {
+      this.module = await import(tempPath);
+    } finally {
+      // Clean up temp file immediately after import
+      try { fs.unlinkSync(tempPath); } catch { /* ignore */ }
+    }
+  }
+
   getExports(): string[] {
     if (!this.module) throw new Error("Module not loaded");
     return Object.keys(this.module).filter((k) => typeof this.module![k] === "function");

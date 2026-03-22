@@ -6,6 +6,7 @@
 
 import type { ChildProcess } from "node:child_process";
 import { ModuleHost } from "../module-host.js";
+import type { ProofVerdict } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -60,11 +61,6 @@ const handlers: Record<string, MethodHandler> = {
     return moduleHost.assertThrows(fnName, fnArgs ?? [], label);
   },
 
-  assertType(args, moduleHost) {
-    const [value, expectedType, label] = args as [unknown, string, string];
-    return moduleHost.assertType(value, expectedType, label);
-  },
-
   assertCondition(args, moduleHost) {
     const [condition, label, details] = args as [boolean, string, string | undefined];
     return moduleHost.assertCondition(condition, label, details);
@@ -73,6 +69,70 @@ const handlers: Record<string, MethodHandler> = {
   async measureTime(args, moduleHost) {
     const [fnName, fnArgs, iterations] = args as [string, unknown[], number | undefined];
     return moduleHost.measureTime(fnName, fnArgs ?? [], iterations);
+  },
+
+  async callFunctionMany(args, moduleHost) {
+    const [fnName, argSets] = args as [string, unknown[][]];
+    const results = [];
+    for (let i = 0; i < (argSets ?? []).length; i++) {
+      try {
+        const callResult = await moduleHost.callFunction(fnName, argSets[i] ?? []);
+        if (callResult.threwError) {
+          results.push({ index: i, args: argSets[i], ok: false, error: callResult.errorMessage ?? callResult.error ?? "Unknown error" });
+        } else {
+          results.push({ index: i, args: argSets[i], ok: true, result: callResult.result });
+        }
+      } catch (err) {
+        results.push({ index: i, args: argSets[i], ok: false, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    return results;
+  },
+
+  async comparePerformance(args, moduleHost) {
+    const [fnName, smallArgs, largeArgs, rawIterations] = args as [string, unknown[], unknown[], number | undefined];
+    const iterations = Math.max(rawIterations ?? 50, 50);
+
+    // Warm-up: run once with each arg set, discard results
+    await moduleHost.callFunction(fnName, smallArgs ?? []);
+    await moduleHost.callFunction(fnName, largeArgs ?? []);
+
+    // Collect small timings
+    const smallTimes: number[] = [];
+    for (let i = 0; i < iterations; i++) {
+      const start = performance.now();
+      await moduleHost.callFunction(fnName, smallArgs ?? []);
+      smallTimes.push(performance.now() - start);
+    }
+
+    // Collect large timings
+    const largeTimes: number[] = [];
+    for (let i = 0; i < iterations; i++) {
+      const start = performance.now();
+      await moduleHost.callFunction(fnName, largeArgs ?? []);
+      largeTimes.push(performance.now() - start);
+    }
+
+    // Compute medians
+    smallTimes.sort((a, b) => a - b);
+    largeTimes.sort((a, b) => a - b);
+    const mid = Math.floor(iterations / 2);
+    const smallMedianMs = iterations % 2 === 0
+      ? (smallTimes[mid - 1] + smallTimes[mid]) / 2
+      : smallTimes[mid];
+    const largeMedianMs = iterations % 2 === 0
+      ? (largeTimes[mid - 1] + largeTimes[mid]) / 2
+      : largeTimes[mid];
+
+    const ratio = smallMedianMs > 0 ? largeMedianMs / smallMedianMs : 0;
+    const trending = ratio > 2.0;
+
+    return {
+      smallMedianMs: Number(smallMedianMs.toFixed(4)),
+      largeMedianMs: Number(largeMedianMs.toFixed(4)),
+      ratio: Number(ratio.toFixed(4)),
+      trending,
+    };
   },
 
   // log is handled specially — no return value needed
@@ -85,13 +145,22 @@ const handlers: Record<string, MethodHandler> = {
 export function attachToolkitHost(
   child: ChildProcess,
   options: ToolkitHostOptions,
-): { callLog: ToolkitCallLog[] } {
+): { callLog: ToolkitCallLog[]; proofVerdicts: ProofVerdict[] } {
   const { moduleHost } = options;
   const callLog: ToolkitCallLog[] = [];
+  const proofVerdicts: ProofVerdict[] = [];
 
   child.on("message", async (msg: unknown) => {
     const m = msg as Record<string, unknown>;
-    if (!m || typeof m !== "object" || m.type !== "toolkit-request") return;
+    if (!m || typeof m !== "object") return;
+
+    // Handle proof verdicts from child
+    if (m.type === "prove-result") {
+      proofVerdicts.push(m.verdict as ProofVerdict);
+      return;
+    }
+
+    if (m.type !== "toolkit-request") return;
 
     const id = m.id as number;
     const method = m.method as string;
@@ -131,5 +200,5 @@ export function attachToolkitHost(
     }
   });
 
-  return { callLog };
+  return { callLog, proofVerdicts };
 }
