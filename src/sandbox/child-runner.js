@@ -213,9 +213,12 @@ _on("message", async (msg) => {
         deepFreeze(model);
 
         // Build the designApi helper
+        const MAX_RUNTIME_REQUESTS = 200;
+
         function createDesignApi(frozenModel) {
           let state = null;
           let stepCount = 0;
+          let requestCount = 0;
           const trace = [];
           const invariantResults = [];
 
@@ -241,54 +244,73 @@ _on("message", async (msg) => {
             reset() {
               state = structuredClonePolyfill(frozenModel.initState());
               stepCount = 0;
+              requestCount = 0;
               trace.length = 0;
               invariantResults.length = 0;
             },
 
             request(endpoint, body) {
               stepCount++;
-              const handler = frozenModel.handlers[endpoint];
-              if (!handler) {
-                const entry = { step: stepCount, type: "unknown_handler", endpoint, body, error: "No handler for endpoint: " + endpoint };
-                trace.push(entry);
-                return { error: "unknown_handler", endpoint };
+              requestCount++;
+
+              // Runtime request count cap
+              if (requestCount > MAX_RUNTIME_REQUESTS) {
+                var capEntry = { step: stepCount, type: "handler_error", endpoint: endpoint, error: "Runtime request limit exceeded (" + MAX_RUNTIME_REQUESTS + ")" };
+                trace.push(capEntry);
+                return { error: "request_limit_exceeded", endpoint: endpoint };
               }
 
+              var handler = frozenModel.handlers[endpoint];
+              if (!handler) {
+                var entry = { step: stepCount, type: "unknown_handler", endpoint: endpoint, body: body, error: "No handler for endpoint: " + endpoint };
+                trace.push(entry);
+                return { error: "unknown_handler", endpoint: endpoint };
+              }
+
+              // Clone body before passing to handler to prevent shared-reference mutation
+              var clonedBody = structuredClonePolyfill(body);
+
               try {
-                const result = handler(structuredClonePolyfill(state), body);
+                var result = handler(structuredClonePolyfill(state), clonedBody);
 
                 // Validate handler response shape
                 if (!result || typeof result !== "object" || !("nextState" in result) || !("response" in result)) {
-                  const entry = { step: stepCount, type: "handler_shape_error", endpoint, body, error: "Handler returned invalid shape" };
-                  trace.push(entry);
-                  return { error: "handler_shape_error", endpoint };
+                  var shapeEntry = { step: stepCount, type: "handler_shape_error", endpoint: endpoint, body: clonedBody, error: "Handler returned invalid shape" };
+                  trace.push(shapeEntry);
+                  return { error: "handler_shape_error", endpoint: endpoint };
                 }
 
                 state = result.nextState;
 
                 // Run invariants after every handler call
-                const invResults = runInvariants(state);
-                for (let i = 0; i < invResults.length; i++) {
+                var invResults = runInvariants(state);
+                for (var i = 0; i < invResults.length; i++) {
                   invariantResults.push(invResults[i]);
                 }
 
-                const entry = {
+                // Clone response before returning to attack code to prevent
+                // shared-reference mutation of model state
+                var clonedResponse = structuredClonePolyfill(result.response);
+
+                var reqEntry = {
                   step: stepCount,
                   type: "request",
-                  endpoint,
-                  body,
-                  response: result.response,
+                  endpoint: endpoint,
+                  body: clonedBody,
+                  response: clonedResponse,
                   stateSnapshot: structuredClonePolyfill(state),
                   invariantResults: invResults,
                 };
-                trace.push(entry);
+                trace.push(reqEntry);
 
-                return result.response;
+                return clonedResponse;
               } catch (err) {
-                const errorMsg = err instanceof Error ? err.message : String(err);
-                const entry = { step: stepCount, type: "handler_error", endpoint, body, error: errorMsg };
-                trace.push(entry);
-                return { error: "handler_error", endpoint, message: errorMsg };
+                // Sanitize error — only include message, not stack traces
+                var errorMsg = err instanceof Error ? err.message : String(err);
+                if (errorMsg.length > 200) errorMsg = errorMsg.slice(0, 200);
+                var errEntry = { step: stepCount, type: "handler_error", endpoint: endpoint, body: clonedBody, error: errorMsg };
+                trace.push(errEntry);
+                return { error: "handler_error", endpoint: endpoint, message: errorMsg };
               }
             },
 
@@ -321,25 +343,26 @@ _on("message", async (msg) => {
 
             assertInvariant(invariantId) {
               stepCount++;
-              const inv = frozenModel.invariants.find(function(inv) { return inv.id === invariantId; });
+              var inv = frozenModel.invariants.find(function(i) { return i.id === invariantId; });
               if (!inv) {
-                const entry = { step: stepCount, type: "invariant_check", message: "Unknown invariant: " + invariantId };
+                var entry = { step: stepCount, type: "invariant_check", message: "Unknown invariant: " + invariantId };
                 trace.push(entry);
                 return { holds: false, violation: "Unknown invariant: " + invariantId };
               }
               try {
-                const result = inv.check(structuredClonePolyfill(state));
-                const entry = {
+                var result = inv.check(structuredClonePolyfill(state));
+                var checkEntry = {
                   step: stepCount,
                   type: "invariant_check",
                   invariantResults: [{ id: invariantId, holds: result.holds, violation: result.violation }],
                 };
-                trace.push(entry);
+                trace.push(checkEntry);
                 return result;
               } catch (err) {
-                const errorMsg = err instanceof Error ? err.message : String(err);
-                const entry = { step: stepCount, type: "invariant_check", error: errorMsg };
-                trace.push(entry);
+                var errorMsg = err instanceof Error ? err.message : String(err);
+                if (errorMsg.length > 200) errorMsg = errorMsg.slice(0, 200);
+                var errEntry = { step: stepCount, type: "invariant_check", error: errorMsg };
+                trace.push(errEntry);
                 return { holds: false, violation: "Invariant check threw: " + errorMsg };
               }
             },

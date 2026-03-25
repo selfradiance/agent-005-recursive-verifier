@@ -178,6 +178,36 @@ async function adversarialSequence(api) {
     expect(result.reason).toContain("fetch(");
   });
 
+  it("rejects attack with constructor bracket access", () => {
+    const code = validAttack.replace(
+      "api.annotate",
+      'var F = ({})["constructor"]["constructor"]; api.annotate',
+    );
+    const result = validateGeneratedCode(code, "generatedAttacks");
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain("constructor");
+  });
+
+  it("rejects attack with constructor string literal", () => {
+    const code = validAttack.replace(
+      "api.annotate",
+      "var c = 'constructor'; api.annotate",
+    );
+    const result = validateGeneratedCode(code, "generatedAttacks");
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain("constructor");
+  });
+
+  it("rejects attack with Object.defineProperty", () => {
+    const code = validAttack.replace(
+      "api.annotate",
+      "Object.defineProperty({}, 'x', { get: function() {} }); api.annotate",
+    );
+    const result = validateGeneratedCode(code, "generatedAttacks");
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain("Object.defineProperty");
+  });
+
   it("rejects deeply nested attack code", () => {
     const code = `async function adversarialSequence(api) {
   api.reset();

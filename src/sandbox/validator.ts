@@ -36,6 +36,9 @@ const BLOCKLIST = [
   "module.",
   "exports.",
   "constructor.",
+  "constructor[",
+  '["constructor"]',
+  "['constructor']",
   "prototype.",
   "__proto__",
   "Reflect.",
@@ -52,6 +55,12 @@ const BLOCKLIST = [
   "dns.",
   "tls.",
   "worker_threads",
+  "Object.defineProperty",
+  "Object.setPrototypeOf",
+  "Object.create(",
+  "Object.getOwnPropertyDescriptor",
+  "__defineGetter__",
+  "__defineSetter__",
 ];
 
 const OBFUSCATION_PATTERNS = [
@@ -75,6 +84,10 @@ const UNBOUNDED_LOOPS = [
 
 // Standalone Function( — blocks `Function(` and `new Function(` but allows `callFunction(`
 const STANDALONE_FUNCTION_PATTERN = /(?<![a-zA-Z])Function\s*\(/;
+
+// Catch constructor access via string literal assigned to variable
+// e.g., var c = 'constructor' or var c = "constructor"
+const CONSTRUCTOR_STRING_PATTERN = /['"]constructor['"]/;
 
 // ---------------------------------------------------------------------------
 // Direct model access patterns (blocked in attack code)
@@ -106,6 +119,10 @@ function checkBlocklist(code: string): ValidationResult | null {
 
   if (STANDALONE_FUNCTION_PATTERN.test(code)) {
     return { valid: false, reason: "Blocked pattern found: Function(" };
+  }
+
+  if (CONSTRUCTOR_STRING_PATTERN.test(code)) {
+    return { valid: false, reason: "Blocked pattern found: constructor string literal" };
   }
 
   for (const frag of CONCAT_FRAGMENTS) {
