@@ -74,3 +74,125 @@ export type ConfirmedFinding = {
   claim: string;
   severity: string;
 };
+
+// ---------------------------------------------------------------------------
+// v0.3.0 Design mode types
+// ---------------------------------------------------------------------------
+
+export type AttributionCategory =
+  | "high_confidence_flaw"
+  | "ambiguity_risk"
+  | "model_defect"
+  | "attack_defect"
+  | "inconclusive";
+
+export type Severity = "critical" | "high" | "medium" | "low" | "informational";
+
+export type TraceEntry = {
+  step: number;
+  type: "request" | "invariant_check" | "annotation" | "expect_rejected" | "expect_allowed" | "handler_error" | "handler_shape_error" | "handler_timeout" | "unknown_handler";
+  endpoint?: string;
+  body?: unknown;
+  response?: unknown;
+  stateSnapshot?: unknown;
+  invariantResults?: InvariantResult[];
+  message?: string;
+  error?: string;
+};
+
+export type InvariantResult = {
+  id: string;
+  holds: boolean;
+  violation?: string;
+};
+
+export type DesignFinding = {
+  id: string;
+  category: AttributionCategory;
+  severity: Severity;
+  affectedEndpoints: string[];
+  affectedRules: string[];
+  assumptionsInvolved: string[];
+  sequenceTrace: TraceEntry[];
+  expectedBehavior: string;
+  observedBehavior: string;
+  invariantFailures: string[];
+  reproducibilityStatus: "reproduced_multiple" | "reproduced_once" | "flaky";
+  attackAnnotations: string[];
+};
+
+export type Assumption = {
+  id: string;
+  text: string;
+  specRef: string;
+  confidence: "high" | "medium" | "low";
+  kind: "ambiguity" | "inferred_rule";
+  relatedRules: string[];
+};
+
+export type BehavioralModelSchema = {
+  assumptions: Assumption[];
+  initState: () => Record<string, unknown>;
+  handlers: Record<string, (state: Record<string, unknown>, request: unknown) => { nextState: Record<string, unknown>; response: unknown; metadata?: unknown }>;
+  invariants: Array<{
+    id: string;
+    description: string;
+    sourceRule: string;
+    check: (state: Record<string, unknown>) => { holds: boolean; violation?: string };
+  }>;
+};
+
+export type ChangeJustification = {
+  what: string;
+  why: string;
+  specEvidence: string;
+  promptedByAttack: boolean;
+  classification: "ambiguity_clarification" | "missing_rule_completion" | "bug_fix" | "suspicious_adaptation";
+};
+
+export type NormalizedSpecSummary = {
+  endpoints: Array<{ path: string; method: string; description: string }>;
+  actors: Array<{ role: string; permissions: string[] }>;
+  resources: Array<{ name: string; description: string }>;
+  stateVariables: Array<{ name: string; description: string }>;
+  invariants: Array<{ id: string; rule: string }>;
+  allowedTransitions: Array<{ from: string; to: string; trigger: string }>;
+  forbiddenTransitions: Array<{ description: string; reason: string }>;
+  unknowns: Array<{ description: string }>;
+};
+
+export type CoverageVector = {
+  endpointsExercised: number;
+  endpointsTotal: number;
+  rolesExercised: number;
+  rolesTotal: number;
+  transitionsExercised: number;
+  transitionsTotal: number;
+  invariantsExercised: number;
+  invariantsTotal: number;
+  rejectionPathsExercised: number;
+  rejectionPathsTotal: number;
+};
+
+export type DesignScore = {
+  invariantViolations: number;
+  unauthorizedAccessPaths: number;
+  stateInconsistencies: number;
+  specAmbiguitiesSurfaced: number;
+  uniqueFindings: number;
+  attributionBreakdown: Record<AttributionCategory, number>;
+  coverage: CoverageVector;
+};
+
+export type FidelityMismatch = {
+  type: "missing_handler" | "missing_rule_mapping" | "uncited_invariant" | "extra_handler";
+  description: string;
+  specItem?: string;
+  modelItem?: string;
+};
+
+export type EvidencePacket = {
+  finding: DesignFinding;
+  modelSnapshot: string;
+  attackCode: string;
+};

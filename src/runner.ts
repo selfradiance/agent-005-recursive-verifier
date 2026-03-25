@@ -1,8 +1,10 @@
-// runner.ts — Orchestrates the recursive loop for both test and review modes.
+// runner.ts — Orchestrates the recursive loop for test, review, and design modes.
 //
 // Test mode: reasoner → generator → validator → executor → scorer (v0.1.0)
 // Review mode: review-reasoner → review-generator → validator → executor → review-scorer (v0.2.0)
+// Design mode: extractor → reasoner-design → validator → executor → scorer-design (v0.3.0)
 
+import fs from "node:fs";
 import { ModuleHost } from "./module-host.js";
 import { generateHypotheses, type ReasonerInput } from "./reasoner.js";
 import { generateTestCode } from "./generator.js";
@@ -12,8 +14,16 @@ import { scoreRound, formatScoreForReasoner, type RoundScore } from "./scorer.js
 import { generateReviewHypotheses } from "./reasoner-review.js";
 import { generateProofCode } from "./generator-review.js";
 import { scoreReviewRound, formatReviewScoreForReasoner } from "./scorer-review.js";
+import { extractSpec } from "./extractor-design.js";
+import { generateDesignModel } from "./reasoner-design.js";
+import { generateAttackCode } from "./generator-design.js";
+import { checkFidelity, buildFindings, computeCoverage, scoreDesignRound, formatDesignScoreForReasoner } from "./scorer-design.js";
 import type { Mode } from "./cli.js";
-import type { Hypothesis, ProofVerdict, ReviewScore, ConfirmedFinding } from "./types.js";
+import type {
+  Hypothesis, ProofVerdict, ReviewScore, ConfirmedFinding,
+  NormalizedSpecSummary, DesignFinding, DesignScore, FidelityMismatch,
+  ChangeJustification, CoverageVector, Assumption,
+} from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -408,5 +418,235 @@ async function runReviewMode(
     allVerdicts,
     allHypotheses,
     allFindings,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Design mode types (v0.3.0)
+// ---------------------------------------------------------------------------
+
+export interface DesignRunnerOptions {
+  specPath: string;
+  rounds: number;
+  verbose: boolean;
+}
+
+export interface DesignRunResult {
+  specSummary: NormalizedSpecSummary;
+  allFindings: DesignFinding[];
+  allScores: DesignScore[];
+  allFidelityMismatches: FidelityMismatch[];
+  allChangeLogs: ChangeJustification[];
+  roundCount: number;
+}
+
+// ---------------------------------------------------------------------------
+// Design mode (v0.3.0)
+// ---------------------------------------------------------------------------
+
+export async function runDesignMode(options: DesignRunnerOptions): Promise<DesignRunResult> {
+  const { specPath, rounds, verbose } = options;
+
+  // Step 1: Read spec file
+  const specText = fs.readFileSync(specPath, "utf-8");
+  console.log(`  📄 Spec loaded: ${specPath} (${Math.round(specText.length / 1024)}KB)`);
+
+  // Step 2: Extract normalized spec summary
+  console.log("  🔍 Extracting spec structure...");
+  const { summary: specSummary } = await extractSpec({ specText });
+  console.log(`  📋 Extracted: ${specSummary.endpoints.length} endpoints, ${specSummary.actors.length} actors, ${specSummary.invariants.length} invariants, ${specSummary.unknowns.length} unknowns`);
+
+  if (specSummary.endpoints.length === 0) {
+    console.log("  ⚠️  No endpoints found in spec. Cannot proceed.");
+    return {
+      specSummary,
+      allFindings: [],
+      allScores: [],
+      allFidelityMismatches: [],
+      allChangeLogs: [],
+      roundCount: 0,
+    };
+  }
+
+  const allFindings: DesignFinding[] = [];
+  const allScores: DesignScore[] = [];
+  const allFidelityMismatches: FidelityMismatch[] = [];
+  const allChangeLogs: ChangeJustification[] = [];
+  let currentModelCode = "";
+  let currentAssumptions: Assumption[] = [];
+  let currentCoverage: CoverageVector | undefined;
+
+  for (let round = 1; round <= rounds; round++) {
+    console.log(`\n── Round ${round} of ${rounds} ──────────────────────────────────\n`);
+
+    // Step 3: Generate behavioral model
+    console.log("  🧠 Generating behavioral model...");
+    const modelResult = await generateDesignModel({
+      specText,
+      specSummary,
+      round,
+      priorModelCode: round > 1 ? currentModelCode : undefined,
+      priorFindings: round > 1 ? allFindings : undefined,
+      priorChangeLog: round > 1 ? allChangeLogs : undefined,
+    });
+
+    if (!modelResult.modelCode) {
+      console.log("  ❌ Model generation returned no code. Skipping round.");
+      continue;
+    }
+
+    currentModelCode = modelResult.modelCode;
+    if (modelResult.changeLog.length > 0) {
+      allChangeLogs.push(...modelResult.changeLog);
+      console.log(`  ✏️  ${modelResult.changeLog.length} model changes logged`);
+    }
+
+    if (verbose) {
+      console.log("\n  --- Generated Model ---");
+      console.log(currentModelCode.slice(0, 2000) + (currentModelCode.length > 2000 ? "\n  ... (truncated)" : ""));
+      console.log("  --- End Model ---\n");
+    }
+
+    // Step 4: Validate model code
+    console.log("  🔒 Validating model code...");
+    const modelValidation = validateGeneratedCode(currentModelCode, "generatedModel");
+    if (!modelValidation.valid) {
+      console.log(`  ❌ Model validation failed: ${modelValidation.reason}`);
+      continue;
+    }
+    console.log("  ✅ Model validation passed");
+
+    // Step 5: Fidelity check — model vs spec
+    console.log("  📐 Checking model fidelity against spec...");
+    const fidelityMismatches = checkFidelity({ specSummary, modelCode: currentModelCode });
+    if (fidelityMismatches.length > 0) {
+      console.log(`  ⚠️  ${fidelityMismatches.length} fidelity mismatch(es):`);
+      for (const m of fidelityMismatches) {
+        console.log(`     [${m.type}] ${m.description}`);
+      }
+      allFidelityMismatches.push(...fidelityMismatches);
+    } else {
+      console.log("  ✅ Model aligns with spec");
+    }
+
+    // Extract assumptions from model code (parse the assumptions array)
+    try {
+      // Simple extraction: look for assumptions array in the generated code
+      const assumptionsMatch = currentModelCode.match(/const\s+assumptions\s*=\s*(\[[\s\S]*?\]);/);
+      if (assumptionsMatch) {
+        // Use Function constructor to safely evaluate just the assumptions array
+        const evalFn = new Function(`return ${assumptionsMatch[1]};`);
+        currentAssumptions = evalFn() as Assumption[];
+        console.log(`  📝 ${currentAssumptions.length} assumption(s) extracted from model`);
+      }
+    } catch {
+      console.log("  ⚠️  Could not extract assumptions from model code");
+    }
+
+    // Step 6: Generate attack sequences
+    console.log("  ⚔️  Generating adversarial attacks...");
+    const { attackCode } = await generateAttackCode({
+      specText,
+      specSummary,
+      modelCode: currentModelCode,
+      assumptions: currentAssumptions,
+      round,
+      priorFindings: round > 1 ? allFindings : undefined,
+      priorCoverage: currentCoverage,
+    });
+
+    if (!attackCode) {
+      console.log("  ❌ Attack generator returned no code. Skipping round.");
+      continue;
+    }
+
+    if (verbose) {
+      console.log("\n  --- Generated Attacks ---");
+      console.log(attackCode);
+      console.log("  --- End Attacks ---\n");
+    }
+
+    // Step 7: Validate attack code
+    console.log("  🔒 Validating attack code...");
+    const attackValidation = validateGeneratedCode(attackCode, "generatedAttacks");
+    if (!attackValidation.valid) {
+      console.log(`  ❌ Attack validation failed: ${attackValidation.reason}`);
+      continue;
+    }
+    console.log("  ✅ Attack validation passed");
+
+    // Step 8: Execute in sandbox (model + attacks)
+    console.log("  🏃 Executing attacks against model...");
+    const sandboxResult = await executeInSandbox(attackCode, {
+      mode: "design",
+      modelCode: currentModelCode,
+    });
+
+    if (!sandboxResult.success) {
+      console.log(`  ❌ Sandbox execution failed: ${sandboxResult.error}`);
+      continue;
+    }
+
+    // Step 9: Build findings from attack results
+    const attackResult = sandboxResult.result as unknown as {
+      trace: Array<Record<string, unknown>>;
+      invariantFailures: Array<Record<string, unknown>>;
+      annotations: string[];
+      totalSteps: number;
+    };
+
+    if (!attackResult || !attackResult.trace) {
+      console.log("  ⚠️  Attack returned no trace data");
+      continue;
+    }
+
+    console.log(`  📊 Attack completed: ${attackResult.totalSteps} steps, ${attackResult.invariantFailures?.length ?? 0} invariant failures`);
+
+    const roundFindings = buildFindings(
+      attackResult as unknown as Parameters<typeof buildFindings>[0],
+      currentAssumptions,
+      specSummary,
+      round,
+      allFindings,
+    );
+    allFindings.push(...roundFindings);
+
+    // Step 10: Compute coverage and score
+    const coverage = computeCoverage(
+      attackResult.trace as unknown as Parameters<typeof computeCoverage>[0],
+      specSummary,
+      currentCoverage,
+    );
+    currentCoverage = coverage;
+
+    const score = scoreDesignRound(allFindings, coverage);
+    allScores.push(score);
+
+    const formattedScore = formatDesignScoreForReasoner(score, round);
+    console.log(`\n${formattedScore}`);
+
+    if (roundFindings.length > 0) {
+      console.log(`\n  🎯 New findings this round:`);
+      for (const f of roundFindings) {
+        console.log(`     [${f.id}] ${f.category}/${f.severity}: ${f.observedBehavior.slice(0, 100)}`);
+      }
+    }
+
+    // Print sandbox logs if any
+    if (sandboxResult.logs.length > 0) {
+      console.log(`\n  📝 Sandbox logs:`);
+      for (const log of sandboxResult.logs) {
+        console.log(`     ${log}`);
+      }
+    }
+  }
+
+  return {
+    specSummary,
+    allFindings,
+    allScores,
+    allFidelityMismatches,
+    allChangeLogs,
+    roundCount: rounds,
   };
 }

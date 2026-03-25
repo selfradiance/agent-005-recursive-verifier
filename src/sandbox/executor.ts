@@ -37,8 +37,9 @@ export interface SandboxResult {
 }
 
 export interface ExecutorOptions {
-  moduleHost: ModuleHost;
+  moduleHost?: ModuleHost;
   mode?: Mode;
+  modelCode?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,12 +109,14 @@ export async function executeInSandbox(
         return;
       }
 
-      // Attach verification toolkit host
-      const hostResult = attachToolkitHost(child, {
-        moduleHost: options.moduleHost,
-      });
-      callLog = hostResult.callLog;
-      proofVerdicts = hostResult.proofVerdicts;
+      // Attach verification toolkit host (only for test/review — design mode is self-contained)
+      if (options.mode !== "design" && options.moduleHost) {
+        const hostResult = attachToolkitHost(child, {
+          moduleHost: options.moduleHost,
+        });
+        callLog = hostResult.callLog;
+        proofVerdicts = hostResult.proofVerdicts;
+      }
 
       // Step 4: Set up 15-second hard timeout
       const timer = setTimeout(() => {
@@ -197,7 +200,11 @@ export async function executeInSandbox(
       });
 
       // Step 7: Send the code to execute
-      child.send({ type: "execute", code, mode: options.mode ?? "test" });
+      const message: Record<string, unknown> = { type: "execute", code, mode: options.mode ?? "test" };
+      if (options.mode === "design" && options.modelCode) {
+        message.modelCode = options.modelCode;
+      }
+      child.send(message);
     });
 
     return result;

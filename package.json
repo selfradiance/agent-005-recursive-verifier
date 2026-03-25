@@ -1,6 +1,6 @@
 {
   "name": "agent-005-recursive-verifier",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "A recursive verification framework that generates executable proof about code quality, design correctness, and system resilience",
   "scripts": {
     "test": "vitest run",

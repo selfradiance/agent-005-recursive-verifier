@@ -187,6 +187,214 @@ _on("message", async (msg) => {
 
   // Handle execute command
   if (msg.type === "execute" && typeof msg.code === "string") {
+    if (msg.mode === "design") {
+      // Design mode: two-phase execution (model + attacks)
+      try {
+        const modelCode = msg.modelCode;
+        const attackCode = msg.code;
+
+        // Phase 1: Evaluate the model
+        const modelFn = new _Function(modelCode + "\nreturn { assumptions, initState, handlers, invariants };");
+        const model = modelFn();
+
+        // Deep freeze the model to prevent mutation
+        function deepFreeze(obj) {
+          if (obj === null || typeof obj !== "object") return obj;
+          Object.freeze(obj);
+          const keys = Object.getOwnPropertyNames(obj);
+          for (let i = 0; i < keys.length; i++) {
+            const val = obj[keys[i]];
+            if (typeof val === "object" && val !== null && !Object.isFrozen(val)) {
+              deepFreeze(val);
+            }
+          }
+          return obj;
+        }
+        deepFreeze(model);
+
+        // Build the designApi helper
+        function createDesignApi(frozenModel) {
+          let state = null;
+          let stepCount = 0;
+          const trace = [];
+          const invariantResults = [];
+
+          function structuredClonePolyfill(obj) {
+            return JSON.parse(JSON.stringify(obj));
+          }
+
+          function runInvariants(currentState) {
+            const results = [];
+            for (let i = 0; i < frozenModel.invariants.length; i++) {
+              const inv = frozenModel.invariants[i];
+              try {
+                const result = inv.check(structuredClonePolyfill(currentState));
+                results.push({ id: inv.id, holds: result.holds, violation: result.violation });
+              } catch (err) {
+                results.push({ id: inv.id, holds: false, violation: "Invariant check threw: " + (err instanceof Error ? err.message : String(err)) });
+              }
+            }
+            return results;
+          }
+
+          const api = {
+            reset() {
+              state = structuredClonePolyfill(frozenModel.initState());
+              stepCount = 0;
+              trace.length = 0;
+              invariantResults.length = 0;
+            },
+
+            request(endpoint, body) {
+              stepCount++;
+              const handler = frozenModel.handlers[endpoint];
+              if (!handler) {
+                const entry = { step: stepCount, type: "unknown_handler", endpoint, body, error: "No handler for endpoint: " + endpoint };
+                trace.push(entry);
+                return { error: "unknown_handler", endpoint };
+              }
+
+              try {
+                const result = handler(structuredClonePolyfill(state), body);
+
+                // Validate handler response shape
+                if (!result || typeof result !== "object" || !("nextState" in result) || !("response" in result)) {
+                  const entry = { step: stepCount, type: "handler_shape_error", endpoint, body, error: "Handler returned invalid shape" };
+                  trace.push(entry);
+                  return { error: "handler_shape_error", endpoint };
+                }
+
+                state = result.nextState;
+
+                // Run invariants after every handler call
+                const invResults = runInvariants(state);
+                for (let i = 0; i < invResults.length; i++) {
+                  invariantResults.push(invResults[i]);
+                }
+
+                const entry = {
+                  step: stepCount,
+                  type: "request",
+                  endpoint,
+                  body,
+                  response: result.response,
+                  stateSnapshot: structuredClonePolyfill(state),
+                  invariantResults: invResults,
+                };
+                trace.push(entry);
+
+                return result.response;
+              } catch (err) {
+                const errorMsg = err instanceof Error ? err.message : String(err);
+                const entry = { step: stepCount, type: "handler_error", endpoint, body, error: errorMsg };
+                trace.push(entry);
+                return { error: "handler_error", endpoint, message: errorMsg };
+              }
+            },
+
+            expectRejected(response, reason) {
+              stepCount++;
+              // A rejected response typically has status >= 400 or an error field
+              const wasRejected = response && (response.status >= 400 || response.error || response.rejected === true);
+              const entry = {
+                step: stepCount,
+                type: "expect_rejected",
+                message: reason,
+                response,
+              };
+              trace.push(entry);
+              return { passed: !!wasRejected, reason, response };
+            },
+
+            expectAllowed(response, reason) {
+              stepCount++;
+              const wasAllowed = response && !response.error && (response.status === undefined || response.status < 400) && response.rejected !== true;
+              const entry = {
+                step: stepCount,
+                type: "expect_allowed",
+                message: reason,
+                response,
+              };
+              trace.push(entry);
+              return { passed: !!wasAllowed, reason, response };
+            },
+
+            assertInvariant(invariantId) {
+              stepCount++;
+              const inv = frozenModel.invariants.find(function(inv) { return inv.id === invariantId; });
+              if (!inv) {
+                const entry = { step: stepCount, type: "invariant_check", message: "Unknown invariant: " + invariantId };
+                trace.push(entry);
+                return { holds: false, violation: "Unknown invariant: " + invariantId };
+              }
+              try {
+                const result = inv.check(structuredClonePolyfill(state));
+                const entry = {
+                  step: stepCount,
+                  type: "invariant_check",
+                  invariantResults: [{ id: invariantId, holds: result.holds, violation: result.violation }],
+                };
+                trace.push(entry);
+                return result;
+              } catch (err) {
+                const errorMsg = err instanceof Error ? err.message : String(err);
+                const entry = { step: stepCount, type: "invariant_check", error: errorMsg };
+                trace.push(entry);
+                return { holds: false, violation: "Invariant check threw: " + errorMsg };
+              }
+            },
+
+            annotate(text) {
+              stepCount++;
+              trace.push({ step: stepCount, type: "annotation", message: String(text) });
+            },
+
+            finish() {
+              // Collect all invariant failures from the trace
+              const allInvariantFailures = [];
+              for (let i = 0; i < trace.length; i++) {
+                const entry = trace[i];
+                if (entry.invariantResults) {
+                  for (let j = 0; j < entry.invariantResults.length; j++) {
+                    if (!entry.invariantResults[j].holds) {
+                      allInvariantFailures.push(entry.invariantResults[j]);
+                    }
+                  }
+                }
+              }
+
+              // Collect annotations
+              const annotations = [];
+              for (let i = 0; i < trace.length; i++) {
+                if (trace[i].type === "annotation") {
+                  annotations.push(trace[i].message);
+                }
+              }
+
+              return {
+                trace: structuredClonePolyfill(trace),
+                invariantFailures: allInvariantFailures,
+                annotations: annotations,
+                totalSteps: stepCount,
+              };
+            },
+          };
+
+          return api;
+        }
+
+        // Phase 2: Run attacks against the model
+        const designApi = createDesignApi(model);
+        const attackFn = new _Function("api", attackCode + "\nreturn adversarialSequence(api);");
+        const result = await attackFn(designApi);
+        _send({ type: "result", result });
+      } catch (err) {
+        _send({ type: "error", error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+
+    // Test/Review mode
     const fnName = msg.mode === "review" ? "generatedProofs" : "generatedTests";
     try {
       const fn = new _Function("toolkit", msg.code + "\nreturn " + fnName + "(toolkit);");
