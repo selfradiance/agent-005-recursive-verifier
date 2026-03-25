@@ -92,7 +92,7 @@ export type Severity = "critical" | "high" | "medium" | "low" | "informational";
 
 export type TraceEntry = {
   step: number;
-  type: "request" | "invariant_check" | "annotation" | "expect_rejected" | "expect_allowed" | "handler_error" | "handler_shape_error" | "unknown_handler";
+  type: "request" | "invariant_check" | "annotation" | "expect_rejected" | "expect_allowed" | "handler_error" | "handler_shape_error" | "unknown_handler" | "reset";
   endpoint?: string;
   body?: unknown;
   response?: unknown;
@@ -163,6 +163,10 @@ export type CoverageVector = {
   invariantsTotal: number;
   rejectionPathsExercised: number;
   rejectionPathsTotal: number;
+  // Internal: carry forward seen items for cumulative union across rounds
+  _seenEndpoints?: string[];
+  _seenRoles?: string[];
+  _seenInvariants?: string[];
 };
 
 export type DesignScore = {

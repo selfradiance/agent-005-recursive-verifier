@@ -186,21 +186,19 @@ export function computeCoverage(
     }
   }
 
-  // Merge with prior coverage
+  // Merge with prior coverage — union the prior seen items into current sets
   if (priorCoverage) {
-    // We track cumulative — use max of current or prior
-    return {
-      endpointsExercised: Math.max(exercisedEndpoints.size, priorCoverage.endpointsExercised),
-      endpointsTotal: specSummary.endpoints.length,
-      rolesExercised: Math.max(exercisedRoles.size, priorCoverage.rolesExercised),
-      rolesTotal: specSummary.actors.length,
-      transitionsExercised: priorCoverage.transitionsExercised, // hard to track precisely
-      transitionsTotal: specSummary.allowedTransitions.length,
-      invariantsExercised: Math.max(exercisedInvariants.size, priorCoverage.invariantsExercised),
-      invariantsTotal: specSummary.invariants.length,
-      rejectionPathsExercised: rejectionPaths + priorCoverage.rejectionPathsExercised,
-      rejectionPathsTotal: specSummary.forbiddenTransitions.length + specSummary.actors.length, // estimate
-    };
+    // Restore prior seen items into current sets for true cumulative union
+    if (priorCoverage._seenEndpoints) {
+      for (const ep of priorCoverage._seenEndpoints) exercisedEndpoints.add(ep);
+    }
+    if (priorCoverage._seenRoles) {
+      for (const r of priorCoverage._seenRoles) exercisedRoles.add(r);
+    }
+    if (priorCoverage._seenInvariants) {
+      for (const inv of priorCoverage._seenInvariants) exercisedInvariants.add(inv);
+    }
+    rejectionPaths += priorCoverage.rejectionPathsExercised;
   }
 
   return {
@@ -208,12 +206,16 @@ export function computeCoverage(
     endpointsTotal: specSummary.endpoints.length,
     rolesExercised: exercisedRoles.size,
     rolesTotal: specSummary.actors.length,
-    transitionsExercised: 0,
+    transitionsExercised: priorCoverage?.transitionsExercised ?? 0,
     transitionsTotal: specSummary.allowedTransitions.length,
     invariantsExercised: exercisedInvariants.size,
     invariantsTotal: specSummary.invariants.length,
     rejectionPathsExercised: rejectionPaths,
     rejectionPathsTotal: specSummary.forbiddenTransitions.length + specSummary.actors.length,
+    // Carry forward the seen sets for future rounds
+    _seenEndpoints: [...exercisedEndpoints],
+    _seenRoles: [...exercisedRoles],
+    _seenInvariants: [...exercisedInvariants],
   };
 }
 
@@ -235,15 +237,18 @@ export function buildFindings(
 ): DesignFinding[] {
   const findings: DesignFinding[] = [];
 
-  // Group trace by reset boundaries (each api.reset() starts a new sequence)
+  // Group trace by reset boundaries (api.reset() pushes a { type: "reset" } marker)
   const sequences: TraceEntry[][] = [];
   let currentSequence: TraceEntry[] = [];
 
   for (const entry of attackResult.trace) {
-    // Detect reset boundaries — step 1 after a reset
-    if (entry.step === 1 && currentSequence.length > 0) {
-      sequences.push(currentSequence);
-      currentSequence = [];
+    // Split on reset markers or legacy step-1 detection
+    if ((entry.type === "reset" || (entry.step === 1 && currentSequence.length > 0))) {
+      if (currentSequence.length > 0) {
+        sequences.push(currentSequence);
+        currentSequence = [];
+      }
+      continue; // Don't include the reset marker itself in sequence data
     }
     currentSequence.push(entry);
   }
@@ -275,18 +280,19 @@ export function buildFindings(
       }
       if (entry.type === "expect_rejected") {
         const resp = entry.response as Record<string, unknown> | undefined;
-        const wasRejected = resp && (
+        // Null/undefined response counts as rejected (error condition)
+        const wasRejected = !resp ||
           (typeof resp.status === "number" && resp.status >= 400) ||
           resp.error ||
-          resp.rejected === true
-        );
+          resp.rejected === true;
         if (!wasRejected) {
           hasExpectRejectedFail = true;
         }
       }
       if (entry.type === "expect_allowed") {
         const resp = entry.response as Record<string, unknown> | undefined;
-        const wasAllowed = resp && !resp.error &&
+        // Null/undefined response is NOT allowed
+        const wasAllowed = !!resp && !resp.error &&
           (resp.status === undefined || (typeof resp.status === "number" && resp.status < 400)) &&
           resp.rejected !== true;
         if (!wasAllowed) {
@@ -299,12 +305,14 @@ export function buildFindings(
     const hasFinding = seqInvariantFailures.length > 0 || hasExpectRejectedFail || hasExpectAllowedFail;
     if (!hasFinding) continue;
 
-    // Check for duplicate findings
+    // Check for duplicate findings (use sorted copies to avoid mutating stored findings)
     const uniqueEndpoints = [...new Set(seqEndpoints)];
     const failedInvIds = [...new Set(seqInvariantFailures.map(f => f.id))];
+    const sortedEndpoints = [...uniqueEndpoints].sort().join(",");
+    const sortedFailedInvs = [...failedInvIds].sort().join(",");
     const isDuplicate = existingFindings.some(
-      ef => ef.affectedEndpoints.sort().join(",") === uniqueEndpoints.sort().join(",") &&
-        ef.invariantFailures.sort().join(",") === failedInvIds.sort().join(","),
+      ef => [...ef.affectedEndpoints].sort().join(",") === sortedEndpoints &&
+        [...ef.invariantFailures].sort().join(",") === sortedFailedInvs,
     );
     if (isDuplicate) continue;
 
@@ -312,12 +320,20 @@ export function buildFindings(
     const category = attributeFinding(seq, seqInvariantFailures, assumptions);
     const severity = categorizeSeverity(seqInvariantFailures, hasExpectRejectedFail, hasExpectAllowedFail);
 
-    // Find affected rules from invariant failures
+    // Find affected rules from invariant failures and business rules
     const affectedRules: string[] = [];
     for (const failure of seqInvariantFailures) {
       const specInv = specSummary.invariants.find(inv => inv.id === failure.id);
       if (specInv) {
         affectedRules.push(specInv.id);
+      }
+    }
+    // Also match business rules referenced in annotations
+    for (const anno of seqAnnotations) {
+      for (const rule of specSummary.businessRules) {
+        if (anno.includes(rule.id) && !affectedRules.includes(rule.id)) {
+          affectedRules.push(rule.id);
+        }
       }
     }
 

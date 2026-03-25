@@ -245,7 +245,9 @@ _on("message", async (msg) => {
               state = structuredClonePolyfill(frozenModel.initState());
               stepCount = 0;
               requestCount = 0;
-              trace.length = 0;
+              // Don't clear trace — preserve all sequences for analysis
+              // Push a reset marker so the scorer can reliably split sequences
+              trace.push({ step: 0, type: "reset" });
               invariantResults.length = 0;
             },
 
@@ -316,8 +318,8 @@ _on("message", async (msg) => {
 
             expectRejected(response, reason) {
               stepCount++;
-              // A rejected response typically has status >= 400 or an error field
-              const wasRejected = response && (response.status >= 400 || response.error || response.rejected === true);
+              // A null/undefined/falsy response is treated as rejected (error condition)
+              const wasRejected = !response || response.status >= 400 || response.error || response.rejected === true;
               const entry = {
                 step: stepCount,
                 type: "expect_rejected",
@@ -330,7 +332,8 @@ _on("message", async (msg) => {
 
             expectAllowed(response, reason) {
               stepCount++;
-              const wasAllowed = response && !response.error && (response.status === undefined || response.status < 400) && response.rejected !== true;
+              // A null/undefined response is NOT allowed — must be a valid response object
+              const wasAllowed = !!response && !response.error && (response.status === undefined || response.status < 400) && response.rejected !== true;
               const entry = {
                 step: stepCount,
                 type: "expect_allowed",

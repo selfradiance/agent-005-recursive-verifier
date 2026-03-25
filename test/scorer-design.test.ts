@@ -229,7 +229,7 @@ describe("computeCoverage", () => {
     expect(coverage.rejectionPathsExercised).toBe(2);
   });
 
-  it("merges with prior coverage", () => {
+  it("merges with prior coverage via cumulative union", () => {
     const trace: TraceEntry[] = [
       { step: 1, type: "request", endpoint: "POST /v1/execute", body: { callerRole: "holder" } },
     ];
@@ -245,11 +245,20 @@ describe("computeCoverage", () => {
       invariantsTotal: 3,
       rejectionPathsExercised: 1,
       rejectionPathsTotal: 4,
+      // Prior round saw these specific items
+      _seenEndpoints: ["POST /v1/identities", "POST /v1/bonds"],
+      _seenRoles: ["admin", "holder"],
+      _seenInvariants: ["INV1"],
     };
 
     const coverage = computeCoverage(trace, sampleSpec, prior);
-    expect(coverage.endpointsExercised).toBe(2); // max(1, 2)
+    // Union: prior 2 endpoints + current 1 new = 3 total unique
+    expect(coverage.endpointsExercised).toBe(3);
     expect(coverage.transitionsExercised).toBe(1); // preserved from prior
+    // Seen sets carry forward
+    expect(coverage._seenEndpoints).toContain("POST /v1/execute");
+    expect(coverage._seenEndpoints).toContain("POST /v1/identities");
+    expect(coverage._seenEndpoints).toContain("POST /v1/bonds");
   });
 });
 

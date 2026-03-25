@@ -214,10 +214,10 @@ async function adversarialSequence(api) {
       annotations: string[];
       totalSteps: number;
     };
-    // After the second api.reset(), the trace only contains the second sequence
-    // (reset clears trace), so only the last annotation survives
-    expect(attackResult.annotations.length).toBe(1);
-    expect(attackResult.annotations[0]).toContain("Sequence 2");
+    // Reset no longer clears the trace — both sequences' annotations survive
+    expect(attackResult.annotations.length).toBe(2);
+    expect(attackResult.annotations[0]).toContain("Sequence 1");
+    expect(attackResult.annotations[1]).toContain("Sequence 2");
     expect(attackResult.totalSteps).toBeGreaterThan(0);
   }, 30_000);
 
