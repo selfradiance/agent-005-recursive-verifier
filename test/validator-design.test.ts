@@ -92,7 +92,8 @@ const invariants = [
   });
 
   it("rejects deeply nested model code", () => {
-    const nested = validModel + "\n{{{{{{{";
+    // 11+ open braces to exceed max depth of 10 for models
+    const nested = validModel + "\n{{{{{{{{{{{{{";
     const result = validateGeneratedCode(nested, "generatedModel");
     expect(result.valid).toBe(false);
     expect(result.reason).toContain("nesting depth");
@@ -159,15 +160,15 @@ async function adversarialSequence(api) {
     expect(result.reason).toContain("adversarialSequence");
   });
 
-  it("rejects attack with more than 20 api.request calls", () => {
+  it("rejects attack with more than 50 api.request calls", () => {
     let calls = "";
-    for (let i = 0; i < 21; i++) {
+    for (let i = 0; i < 51; i++) {
       calls += `  api.request("GET /v1/identities/1", { callerRole: "admin" });\n`;
     }
     const code = `async function adversarialSequence(api) {\n  api.reset();\n${calls}  return api.finish();\n}`;
     const result = validateGeneratedCode(code, "generatedAttacks");
     expect(result.valid).toBe(false);
-    expect(result.reason).toContain("20 api.request()");
+    expect(result.reason).toContain("50 api.request()");
   });
 
   it("rejects attack with blocked patterns", () => {

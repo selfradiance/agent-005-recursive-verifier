@@ -250,8 +250,8 @@ function validateGeneratedModel(code: string): ValidationResult {
     return { valid: false, reason: "Model handlers must be synchronous (no async)" };
   }
 
-  // 5. Nesting depth check (max 6)
-  const nestingResult = checkNestingDepth(code, 6);
+  // 5. Nesting depth check (max 10 for models — handlers have nested if/for blocks)
+  const nestingResult = checkNestingDepth(code, 10);
   if (nestingResult) return nestingResult;
 
   // 6. Must contain at least one inline comment with spec reference
@@ -297,7 +297,7 @@ function validateGeneratedAttacks(code: string): ValidationResult {
   const nestingResult = checkNestingDepth(code, 5);
   if (nestingResult) return nestingResult;
 
-  // 7. Handler call count check (max 20 api.request calls per sequence)
+  // 7. Handler call count check (max 50 api.request calls — multiple sequences need room)
   let requestCount = 0;
   let searchIdx = 0;
   while (true) {
@@ -306,8 +306,8 @@ function validateGeneratedAttacks(code: string): ValidationResult {
     requestCount++;
     searchIdx = found + 12;
   }
-  if (requestCount > 20) {
-    return { valid: false, reason: "Attack code exceeds maximum of 20 api.request() calls" };
+  if (requestCount > 50) {
+    return { valid: false, reason: "Attack code exceeds maximum of 50 api.request() calls" };
   }
 
   // 8. Must contain the function signature

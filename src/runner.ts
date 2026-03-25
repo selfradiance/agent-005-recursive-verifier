@@ -516,15 +516,17 @@ export async function runDesignMode(options: DesignRunnerOptions): Promise<Desig
     }
     console.log("  ✅ Model validation passed");
 
-    // Step 5: Fidelity check — model vs spec
+    // Step 5: Fidelity check — model vs spec (replace prior mismatches, not accumulate)
     console.log("  📐 Checking model fidelity against spec...");
     const fidelityMismatches = checkFidelity({ specSummary, modelCode: currentModelCode });
+    // Replace rather than append — each round's model is a full replacement
+    allFidelityMismatches.length = 0;
+    allFidelityMismatches.push(...fidelityMismatches);
     if (fidelityMismatches.length > 0) {
       console.log(`  ⚠️  ${fidelityMismatches.length} fidelity mismatch(es):`);
       for (const m of fidelityMismatches) {
         console.log(`     [${m.type}] ${m.description}`);
       }
-      allFidelityMismatches.push(...fidelityMismatches);
     } else {
       console.log("  ✅ Model aligns with spec");
     }
