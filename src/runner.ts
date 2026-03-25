@@ -531,14 +531,19 @@ export async function runDesignMode(options: DesignRunnerOptions): Promise<Desig
       console.log("  ✅ Model aligns with spec");
     }
 
-    // Extract assumptions from model code (parse the assumptions array)
+    // Extract assumptions from model code (parse as JSON to avoid eval in parent process)
     try {
-      // Simple extraction: look for assumptions array in the generated code
       const assumptionsMatch = currentModelCode.match(/const\s+assumptions\s*=\s*(\[[\s\S]*?\]);/);
       if (assumptionsMatch) {
-        // Use Function constructor to safely evaluate just the assumptions array
-        const evalFn = new Function(`return ${assumptionsMatch[1]};`);
-        currentAssumptions = evalFn() as Assumption[];
+        // Normalize JS object literals to valid JSON:
+        // - wrap unquoted property names in double quotes
+        // - replace single-quoted strings with double-quoted strings
+        // - remove trailing commas before ] or }
+        let jsonCandidate = assumptionsMatch[1]
+          .replace(/(\w+)\s*:/g, '"$1":')          // unquoted keys → "keys"
+          .replace(/'([^']*?)'/g, '"$1"')           // 'val' → "val"
+          .replace(/,\s*([}\]])/g, '$1');            // trailing commas
+        currentAssumptions = JSON.parse(jsonCandidate) as Assumption[];
         console.log(`  📝 ${currentAssumptions.length} assumption(s) extracted from model`);
       }
     } catch {
