@@ -234,15 +234,18 @@ _on("message", async (msg) => {
         const modelFn = new _Function(modelCode + "\nreturn { assumptions, initState, handlers, invariants };");
         const model = modelFn();
 
-        // Deep freeze the model to prevent mutation
-        function deepFreeze(obj) {
+        // Deep freeze the model to prevent mutation (depth-limited to avoid stack overflow)
+        var MAX_FREEZE_DEPTH = 50;
+        function deepFreeze(obj, depth) {
+          if (depth === undefined) depth = 0;
           if (obj === null || typeof obj !== "object") return obj;
+          if (depth >= MAX_FREEZE_DEPTH) return obj;
           Object.freeze(obj);
           const keys = Object.getOwnPropertyNames(obj);
           for (let i = 0; i < keys.length; i++) {
             const val = obj[keys[i]];
             if (typeof val === "object" && val !== null && !Object.isFrozen(val)) {
-              deepFreeze(val);
+              deepFreeze(val, depth + 1);
             }
           }
           return obj;
@@ -354,7 +357,7 @@ _on("message", async (msg) => {
               } catch (err) {
                 // Sanitize error — only include message, not stack traces
                 var errorMsg = err instanceof Error ? err.message : String(err);
-                if (errorMsg.length > 200) errorMsg = errorMsg.slice(0, 200);
+                if (errorMsg.length > 200) errorMsg = errorMsg.slice(0, 200) + "...";
                 var errEntry = { step: stepCount, type: "handler_error", endpoint: endpoint, body: clonedBody, error: errorMsg };
                 trace.push(errEntry);
                 return { error: "handler_error", endpoint: endpoint, message: errorMsg };
@@ -408,7 +411,7 @@ _on("message", async (msg) => {
                 return result;
               } catch (err) {
                 var errorMsg = err instanceof Error ? err.message : String(err);
-                if (errorMsg.length > 200) errorMsg = errorMsg.slice(0, 200);
+                if (errorMsg.length > 200) errorMsg = errorMsg.slice(0, 200) + "...";
                 var errEntry = { step: stepCount, type: "invariant_check", error: errorMsg };
                 trace.push(errEntry);
                 return { holds: false, violation: "Invariant check threw: " + errorMsg };

@@ -171,6 +171,7 @@ export function computeCoverage(
   const exercisedEndpoints = new Set<string>();
   const exercisedRoles = new Set<string>();
   const exercisedInvariants = new Set<string>();
+  const exercisedTransitions = new Set<string>();
   let rejectionPaths = 0;
 
   for (const entry of trace) {
@@ -180,6 +181,14 @@ export function computeCoverage(
       const body = entry.body as Record<string, unknown> | undefined;
       if (body && typeof body.callerRole === "string") {
         exercisedRoles.add(body.callerRole);
+      }
+
+      const observedTransitions = detectObservedTransitions(entry.preStateSnapshot, entry.stateSnapshot);
+      for (const transition of specSummary.allowedTransitions) {
+        const transitionKey = makeTransitionKey(transition.from, transition.to, transition.trigger);
+        if (observedTransitions.has(makeTransitionPair(transition.from, transition.to))) {
+          exercisedTransitions.add(transitionKey);
+        }
       }
     }
 
@@ -213,6 +222,13 @@ export function computeCoverage(
     if (priorCoverage._seenInvariants) {
       for (const inv of priorCoverage._seenInvariants) exercisedInvariants.add(inv);
     }
+    if (priorCoverage._seenTransitions) {
+      for (const transition of priorCoverage._seenTransitions) exercisedTransitions.add(transition);
+    } else {
+      for (let i = 0; i < (priorCoverage.transitionsExercised ?? 0); i++) {
+        exercisedTransitions.add(`__legacy_transition_${i}`);
+      }
+    }
     rejectionPaths += priorCoverage.rejectionPathsExercised;
   }
 
@@ -221,7 +237,7 @@ export function computeCoverage(
     endpointsTotal: specSummary.endpoints.length,
     rolesExercised: exercisedRoles.size,
     rolesTotal: specSummary.actors.length,
-    transitionsExercised: priorCoverage?.transitionsExercised ?? 0,
+    transitionsExercised: exercisedTransitions.size,
     transitionsTotal: specSummary.allowedTransitions.length,
     invariantsExercised: exercisedInvariants.size,
     invariantsTotal: specSummary.invariants.length,
@@ -231,7 +247,66 @@ export function computeCoverage(
     _seenEndpoints: [...exercisedEndpoints],
     _seenRoles: [...exercisedRoles],
     _seenInvariants: [...exercisedInvariants],
+    _seenTransitions: [...exercisedTransitions],
   };
+}
+
+function makeTransitionPair(from: string, to: string): string {
+  return `${String(from)}->${String(to)}`;
+}
+
+function makeTransitionKey(from: string, to: string, trigger: string): string {
+  return `${String(from)}->${String(to)}::${trigger}`;
+}
+
+function isScalar(value: unknown): value is string | number | boolean | null {
+  return value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+const MAX_TRANSITION_DEPTH = 20;
+
+function collectObservedTransitionPairs(
+  before: unknown,
+  after: unknown,
+  observed: Set<string>,
+  depth = 0,
+): void {
+  if (depth >= MAX_TRANSITION_DEPTH) return;
+  if (before === after) return;
+
+  if (isScalar(before) || isScalar(after)) {
+    if (before !== undefined && after !== undefined) {
+      observed.add(makeTransitionPair(String(before), String(after)));
+    }
+    return;
+  }
+
+  if (Array.isArray(before) && Array.isArray(after)) {
+    // Only compare elements that exist in both arrays; length changes
+    // represent additions/removals, not state transitions.
+    const minLength = Math.min(before.length, after.length);
+    for (let i = 0; i < minLength; i++) {
+      collectObservedTransitionPairs(before[i], after[i], observed, depth + 1);
+    }
+    return;
+  }
+
+  if (isRecord(before) && isRecord(after)) {
+    const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+    for (const key of keys) {
+      collectObservedTransitionPairs(before[key], after[key], observed, depth + 1);
+    }
+  }
+}
+
+function detectObservedTransitions(before: unknown, after: unknown): Set<string> {
+  const observed = new Set<string>();
+  collectObservedTransitionPairs(before, after, observed);
+  return observed;
 }
 
 // ---------------------------------------------------------------------------
