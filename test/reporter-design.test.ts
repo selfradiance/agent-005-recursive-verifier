@@ -10,6 +10,7 @@ const sampleSpec: NormalizedSpecSummary = {
   actors: [{ role: "admin", permissions: ["create"] }],
   resources: [{ name: "item", description: "A resource" }],
   stateVariables: [],
+  businessRules: [],
   invariants: [{ id: "INV1", rule: "Items must be active" }],
   allowedTransitions: [],
   forbiddenTransitions: [],

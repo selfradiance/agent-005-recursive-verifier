@@ -16,12 +16,14 @@ export type ProofVerdict = {
 // v0.2.0 Hypothesis types
 // ---------------------------------------------------------------------------
 
+export type HypothesisSeverity = "critical" | "high" | "medium" | "low";
+
 export type Hypothesis = {
   id: string;
   category: "bug" | "edge_case" | "performance" | "security" | "property_violation";
   target: string;
   claim: string;
-  severity: "critical" | "high" | "medium" | "low";
+  severity: HypothesisSeverity;
   expected_signal_type: "value" | "throw" | "timeout" | "ratio" | "invariant_break" | "nondeterminism";
   requires_fresh_state: boolean;
   proof_strategy: string;
@@ -72,7 +74,7 @@ export type ConfirmedFinding = {
   target: string;
   category: string;
   claim: string;
-  severity: string;
+  severity: HypothesisSeverity;
 };
 
 // ---------------------------------------------------------------------------
@@ -90,7 +92,7 @@ export type Severity = "critical" | "high" | "medium" | "low" | "informational";
 
 export type TraceEntry = {
   step: number;
-  type: "request" | "invariant_check" | "annotation" | "expect_rejected" | "expect_allowed" | "handler_error" | "handler_shape_error" | "handler_timeout" | "unknown_handler";
+  type: "request" | "invariant_check" | "annotation" | "expect_rejected" | "expect_allowed" | "handler_error" | "handler_shape_error" | "unknown_handler";
   endpoint?: string;
   body?: unknown;
   response?: unknown;
@@ -130,24 +132,12 @@ export type Assumption = {
   relatedRules: string[];
 };
 
-export type BehavioralModelSchema = {
-  assumptions: Assumption[];
-  initState: () => Record<string, unknown>;
-  handlers: Record<string, (state: Record<string, unknown>, request: unknown) => { nextState: Record<string, unknown>; response: unknown; metadata?: unknown }>;
-  invariants: Array<{
-    id: string;
-    description: string;
-    sourceRule: string;
-    check: (state: Record<string, unknown>) => { holds: boolean; violation?: string };
-  }>;
-};
-
 export type ChangeJustification = {
   what: string;
   why: string;
   specEvidence: string;
   promptedByAttack: boolean;
-  classification: "ambiguity_clarification" | "missing_rule_completion" | "bug_fix" | "suspicious_adaptation";
+  classification: "ambiguity_clarification" | "missing_rule_completion" | "bug_fix" | "suspicious_adaptation" | "defensive_hardening" | "edge_case_handling";
 };
 
 export type NormalizedSpecSummary = {
@@ -155,6 +145,7 @@ export type NormalizedSpecSummary = {
   actors: Array<{ role: string; permissions: string[] }>;
   resources: Array<{ name: string; description: string }>;
   stateVariables: Array<{ name: string; description: string }>;
+  businessRules: Array<{ id: string; rule: string }>;
   invariants: Array<{ id: string; rule: string }>;
   allowedTransitions: Array<{ from: string; to: string; trigger: string }>;
   forbiddenTransitions: Array<{ description: string; reason: string }>;
@@ -185,14 +176,9 @@ export type DesignScore = {
 };
 
 export type FidelityMismatch = {
-  type: "missing_handler" | "missing_rule_mapping" | "uncited_invariant" | "extra_handler";
+  type: "missing_handler" | "missing_rule_mapping" | "extra_handler";
   description: string;
   specItem?: string;
   modelItem?: string;
 };
 
-export type EvidencePacket = {
-  finding: DesignFinding;
-  modelSnapshot: string;
-  attackCode: string;
-};

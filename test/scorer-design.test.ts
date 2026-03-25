@@ -34,6 +34,10 @@ const sampleSpec: NormalizedSpecSummary = {
   ],
   resources: [{ name: "identity", description: "A digital identity" }],
   stateVariables: [{ name: "identity.status", description: "active or suspended" }],
+  businessRules: [
+    { id: "R1", rule: "Only admin can create identities" },
+    { id: "R2", rule: "Only holder can create bonds" },
+  ],
   invariants: [
     { id: "INV1", rule: "Used amount never exceeds bonded amount" },
     { id: "INV2", rule: "No action references nonexistent bond" },

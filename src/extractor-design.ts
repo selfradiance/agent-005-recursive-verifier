@@ -39,10 +39,11 @@ Extract a normalized summary with these fields:
 2. actors — all roles/actors with their permissions
 3. resources — all domain objects/resources mentioned
 4. stateVariables — all state that can change (e.g., "bond.usedAmount", "identity.status")
-5. invariants — all stated invariants or business rules that must always hold
-6. allowedTransitions — valid state transitions (from → to, with trigger)
-7. forbiddenTransitions — explicitly prohibited state transitions with reasons
-8. unknowns — ambiguities, missing information, or underspecified behaviors
+5. businessRules — explicit business rules (e.g., "R1: Only admin can create identities") with an id and rule text
+6. invariants — state invariants that must always hold (e.g., "INV1: Used amount never exceeds bonded amount") with an id and rule text. These are properties that can be checked against the current state, NOT action/permission rules.
+7. allowedTransitions — valid state transitions (from → to, with trigger)
+8. forbiddenTransitions — explicitly prohibited state transitions with reasons
+9. unknowns — ambiguities, missing information, or underspecified behaviors
 
 RULES:
 - Extract ONLY what is explicitly stated or clearly implied by the spec
@@ -57,7 +58,8 @@ Return JSON only, no markdown fences:
   "actors": [{ "role": "admin", "permissions": ["create_identity", "suspend_identity"] }],
   "resources": [{ "name": "identity", "description": "..." }],
   "stateVariables": [{ "name": "identity.status", "description": "active or suspended" }],
-  "invariants": [{ "id": "INV1", "rule": "..." }],
+  "businessRules": [{ "id": "R1", "rule": "Only admin can create identities" }],
+  "invariants": [{ "id": "INV1", "rule": "Used amount never exceeds bonded amount" }],
   "allowedTransitions": [{ "from": "active", "to": "suspended", "trigger": "admin suspends identity" }],
   "forbiddenTransitions": [{ "description": "...", "reason": "..." }],
   "unknowns": [{ "description": "..." }]
@@ -133,6 +135,7 @@ export async function extractSpec(input: ExtractorInput): Promise<ExtractorOutpu
       actors: parsed.actors ?? [],
       resources: parsed.resources ?? [],
       stateVariables: parsed.stateVariables ?? [],
+      businessRules: parsed.businessRules ?? [],
       invariants: parsed.invariants ?? [],
       allowedTransitions: parsed.allowedTransitions ?? [],
       forbiddenTransitions: parsed.forbiddenTransitions ?? [],
@@ -156,6 +159,7 @@ function emptySpec(): NormalizedSpecSummary {
     actors: [],
     resources: [],
     stateVariables: [],
+    businessRules: [],
     invariants: [],
     allowedTransitions: [],
     forbiddenTransitions: [],

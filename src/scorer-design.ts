@@ -310,7 +310,7 @@ export function buildFindings(
 
     // Build the finding
     const category = attributeFinding(seq, seqInvariantFailures, assumptions);
-    const severity = categorizeSeverity(seqInvariantFailures, hasExpectRejectedFail);
+    const severity = categorizeSeverity(seqInvariantFailures, hasExpectRejectedFail, hasExpectAllowedFail);
 
     // Find affected rules from invariant failures
     const affectedRules: string[] = [];
@@ -367,11 +367,14 @@ export function buildFindings(
 function categorizeSeverity(
   invariantFailures: InvariantResult[],
   hasAuthBypass: boolean,
+  hasExpectAllowedFail?: boolean,
 ): "critical" | "high" | "medium" | "low" | "informational" {
   if (hasAuthBypass) return "critical";
   if (invariantFailures.length >= 3) return "critical";
   if (invariantFailures.length >= 1) return "high";
-  return "medium";
+  if (hasExpectAllowedFail) return "medium";
+  // No invariant failures, no auth bypass, no allowed-fail — low signal
+  return "low";
 }
 
 // ---------------------------------------------------------------------------

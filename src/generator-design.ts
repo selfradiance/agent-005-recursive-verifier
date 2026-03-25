@@ -35,6 +35,10 @@ function buildAttackPrompt(input: GeneratorDesignInput): string {
     .map(e => `  ${e.method} ${e.path} — ${e.description}`)
     .join("\n");
 
+  const businessRulesList = input.specSummary.businessRules
+    .map(r => `  ${r.id}: ${r.rule}`)
+    .join("\n");
+
   const invariantsList = input.specSummary.invariants
     .map(inv => `  ${inv.id}: ${inv.rule}`)
     .join("\n");
@@ -54,7 +58,10 @@ SPEC SUMMARY:
 Endpoints:
 ${endpointsList}
 
-Invariants:
+Business Rules:
+${businessRulesList || "  (none identified)"}
+
+Invariants (state properties):
 ${invariantsList}
 
 Forbidden transitions:

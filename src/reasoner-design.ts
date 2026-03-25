@@ -39,6 +39,10 @@ function buildModelPrompt(input: ReasonerDesignInput): string {
     .map(a => `  ${a.role}: ${a.permissions.join(", ")}`)
     .join("\n");
 
+  const businessRulesList = input.specSummary.businessRules
+    .map(r => `  ${r.id}: ${r.rule}`)
+    .join("\n");
+
   const invariantsList = input.specSummary.invariants
     .map(inv => `  ${inv.id}: ${inv.rule}`)
     .join("\n");
@@ -61,7 +65,10 @@ ${endpointsList}
 Actors:
 ${actorsList}
 
-Invariants:
+Business Rules:
+${businessRulesList || "  (none identified)"}
+
+Invariants (state properties that must always hold):
 ${invariantsList}
 
 Unknowns/Ambiguities:
@@ -138,7 +145,15 @@ Return JSON:
       "classification": "bug_fix"
     }
   ]
-}`;
+}
+
+VALID classification values (use ONLY these):
+- "ambiguity_clarification" — resolved a spec ambiguity
+- "missing_rule_completion" — added a rule the spec implied but didn't state
+- "bug_fix" — fixed a model bug found by attack
+- "suspicious_adaptation" — change that might paper over a real flaw
+- "defensive_hardening" — added validation/guards for robustness
+- "edge_case_handling" — handled an edge case not covered before`;
 }
 
 // ---------------------------------------------------------------------------
@@ -198,9 +213,24 @@ export async function generateDesignModel(input: ReasonerDesignInput): Promise<R
     const jsonStr = extractJson(raw);
     try {
       const parsed = JSON.parse(jsonStr);
+      const validClassifications = new Set([
+        "ambiguity_clarification", "missing_rule_completion", "bug_fix",
+        "suspicious_adaptation", "defensive_hardening", "edge_case_handling",
+      ]);
+      const changeLog: ChangeJustification[] = (parsed.changeLog ?? []).map(
+        (entry: Record<string, unknown>) => ({
+          what: String(entry.what ?? ""),
+          why: String(entry.why ?? ""),
+          specEvidence: String(entry.specEvidence ?? ""),
+          promptedByAttack: Boolean(entry.promptedByAttack),
+          classification: validClassifications.has(entry.classification as string)
+            ? entry.classification as ChangeJustification["classification"]
+            : "bug_fix",
+        }),
+      );
       return {
         modelCode: parsed.modelCode ?? "",
-        changeLog: parsed.changeLog ?? [],
+        changeLog,
         raw,
       };
     } catch {
