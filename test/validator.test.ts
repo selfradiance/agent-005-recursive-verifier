@@ -124,6 +124,26 @@ async function generatedTests(toolkit) {
     expect(result.reason).toContain("Unbounded loop");
   });
 
+  it("rejects unbounded do...while(true) loops", () => {
+    const code = validCode.replace("const results = [];", "const results = []; do { break; } while(true)");
+    const result = validateGeneratedCode(code);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain("Unbounded loop");
+  });
+
+  it("rejects for loop with empty condition", () => {
+    const code = validCode.replace("const results = [];", "const results = []; for(var i=0;;i++) { break; }");
+    const result = validateGeneratedCode(code);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain("Unbounded loop");
+  });
+
+  it("rejects design mode directly", () => {
+    const result = validateGeneratedCode("any code", "design");
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain("generatedModel or generatedAttacks");
+  });
+
   // -------------------------------------------------------------------------
   // Review mode tests
   // -------------------------------------------------------------------------

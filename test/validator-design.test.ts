@@ -98,6 +98,28 @@ const invariants = [
     expect(result.valid).toBe(false);
     expect(result.reason).toContain("nesting depth");
   });
+
+  it("ignores braces inside string literals for nesting depth", () => {
+    // Add a string containing many braces — should not inflate depth count
+    const code = validModel.replace(
+      'return { holds: true };',
+      'return { holds: true, extra: "{{{{{{{{{{{{" };',
+    );
+    const result = validateGeneratedCode(code, "generatedModel");
+    expect(result.valid).toBe(true);
+  });
+
+  it("rejects model with field names only in comments", () => {
+    // All four field names appear only in comments, not as actual declarations
+    const code = `
+// This model has assumptions, initState, handlers, and invariants in comments only
+var suppositions = [];
+function initializeState() { return {}; }
+var endpoints = {};
+var checks = [];`;
+    const result = validateGeneratedCode(code, "generatedModel");
+    expect(result.valid).toBe(false);
+  });
 });
 
 describe("validateGeneratedCode — generatedAttacks mode", () => {

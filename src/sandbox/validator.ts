@@ -22,6 +22,7 @@ const BLOCKLIST = [
   "require(",
   "import ",
   "import(",
+  "import{",
   "process.",
   "fs.",
   "child_process",
@@ -79,7 +80,13 @@ const CONCAT_FRAGMENTS = ["'req'", '"req"', "'imp'", '"imp"', "'pro'", '"pro"', 
 const UNBOUNDED_LOOPS = [
   /while\s*\(\s*true\s*\)/,
   /while\s*\(\s*1\s*\)/,
+  /while\s*\(\s*!false\s*\)/,
+  /while\s*\(\s*1\s*===?\s*1\s*\)/,
+  /while\s*\(\s*0\s*===?\s*0\s*\)/,
   /for\s*\(\s*;\s*;\s*\)/,
+  /for\s*\([^;]*;\s*;/,             // for(var i=0;;...) — empty condition
+  /do\s*\{[\s\S]*?\}\s*while\s*\(\s*true\s*\)/,
+  /do\s*\{[\s\S]*?\}\s*while\s*\(\s*1\s*\)/,
 ];
 
 // Standalone Function( — blocks `Function(` and `new Function(` but allows `callFunction(`
@@ -99,6 +106,21 @@ const MODEL_DIRECT_ACCESS_PATTERNS = [
   "model.initState",
   "model[",
 ];
+
+// ---------------------------------------------------------------------------
+// Model declaration patterns — match actual variable/function definitions
+// ---------------------------------------------------------------------------
+
+const MODEL_DECLARATION_PATTERNS = {
+  // Matches: const assumptions, var assumptions, let assumptions, or top-level assignments
+  assumptions: /(?:const|var|let)\s+assumptions\s*=|^assumptions\s*=/m,
+  // Matches: function initState or const/var/let initState
+  initState: /(?:function\s+initState|(?:const|var|let)\s+initState\s*=)/,
+  // Matches: const handlers, var handlers, let handlers
+  handlers: /(?:const|var|let)\s+handlers\s*=/,
+  // Matches: const invariants, var invariants, let invariants
+  invariants: /(?:const|var|let)\s+invariants\s*=/,
+};
 
 // ---------------------------------------------------------------------------
 // Common blocklist + obfuscation checks (shared across all modes)
@@ -126,12 +148,15 @@ function checkBlocklist(code: string): ValidationResult | null {
   }
 
   for (const frag of CONCAT_FRAGMENTS) {
-    const idx = code.indexOf(frag);
-    if (idx !== -1) {
+    let fragIdx = 0;
+    while (true) {
+      const idx = code.indexOf(frag, fragIdx);
+      if (idx === -1) break;
       const after = code.slice(idx, idx + frag.length + 20);
       if (after.includes("+")) {
         return { valid: false, reason: `Blocked pattern found: string concatenation near ${frag}` };
       }
+      fragIdx = idx + frag.length;
     }
   }
 
@@ -151,14 +176,50 @@ function checkBlocklist(code: string): ValidationResult | null {
 function checkNestingDepth(code: string, maxAllowed: number): ValidationResult | null {
   let maxDepth = 0;
   let currentDepth = 0;
-  for (const ch of code) {
+  let i = 0;
+  const len = code.length;
+
+  while (i < len) {
+    const ch = code[i];
+
+    // Skip single-line comments
+    if (ch === "/" && i + 1 < len && code[i + 1] === "/") {
+      i += 2;
+      while (i < len && code[i] !== "\n") i++;
+      continue;
+    }
+
+    // Skip multi-line comments
+    if (ch === "/" && i + 1 < len && code[i + 1] === "*") {
+      i += 2;
+      while (i < len && !(code[i] === "*" && i + 1 < len && code[i + 1] === "/")) i++;
+      i += 2; // skip closing */
+      continue;
+    }
+
+    // Skip string literals (single, double, and template)
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const quote = ch;
+      i++;
+      while (i < len && code[i] !== quote) {
+        if (code[i] === "\\") i++; // skip escaped char
+        i++;
+      }
+      i++; // skip closing quote
+      continue;
+    }
+
+    // Count braces in actual code
     if (ch === "{") {
       currentDepth++;
       if (currentDepth > maxDepth) maxDepth = currentDepth;
     } else if (ch === "}") {
       currentDepth--;
     }
+
+    i++;
   }
+
   if (maxDepth > maxAllowed) {
     return { valid: false, reason: `Code exceeds maximum nesting depth of ${maxAllowed}` };
   }
@@ -176,6 +237,9 @@ export function validateGeneratedCode(code: string, mode: ValidatorMode = "test"
   }
   if (mode === "generatedAttacks") {
     return validateGeneratedAttacks(code);
+  }
+  if (mode === "design") {
+    return { valid: false, reason: "Design mode code must be validated as generatedModel or generatedAttacks, not design" };
   }
 
   // Original test/review mode validation
@@ -247,17 +311,18 @@ function validateGeneratedModel(code: string): ValidationResult {
   const blocklistResult = checkBlocklist(code);
   if (blocklistResult) return blocklistResult;
 
-  // 3. Must export required fields: assumptions, initState, handlers, invariants
-  if (!code.includes("assumptions")) {
+  // 3. Must define required fields: assumptions, initState, handlers, invariants
+  // Use declaration patterns to avoid matching substrings in comments/strings
+  if (!MODEL_DECLARATION_PATTERNS.assumptions.test(code)) {
     return { valid: false, reason: "Model must define assumptions array" };
   }
-  if (!code.includes("initState")) {
+  if (!MODEL_DECLARATION_PATTERNS.initState.test(code)) {
     return { valid: false, reason: "Model must define initState function" };
   }
-  if (!code.includes("handlers")) {
+  if (!MODEL_DECLARATION_PATTERNS.handlers.test(code)) {
     return { valid: false, reason: "Model must define handlers object" };
   }
-  if (!code.includes("invariants")) {
+  if (!MODEL_DECLARATION_PATTERNS.invariants.test(code)) {
     return { valid: false, reason: "Model must define invariants array" };
   }
 
