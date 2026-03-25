@@ -108,7 +108,43 @@ describe("generateDesignReport", () => {
     expect(report.summary).toContain("high_confidence_flaw");
     expect(report.summary).toContain("ambiguity risk");
     expect(report.summary).toContain("INV1");
+    expect(report.summary).toContain("Rules: INV1");
     expect(report.summary).toContain("Endpoints: 2/2");
+    expect(report.summary).toContain("Transitions: 0/0");
+    expect(report.summary).toContain("Testing status validation");
+  });
+
+  it("shows auth bypass indicator and all annotations", async () => {
+    const findings: DesignFinding[] = [
+      {
+        id: "F1-1",
+        category: "high_confidence_flaw",
+        severity: "critical",
+        affectedEndpoints: ["POST /v1/items"],
+        affectedRules: ["R1"],
+        assumptionsInvolved: [],
+        sequenceTrace: [],
+        expectedBehavior: "Should reject",
+        observedBehavior: "Was allowed",
+        invariantFailures: [],
+        reproducibilityStatus: "reproduced_once",
+        attackAnnotations: ["First note", "Second note"],
+        hasAuthBypass: true,
+      },
+    ];
+
+    const report = await generateDesignReport({
+      specSummary: sampleSpec,
+      allFindings: findings,
+      allScores: [],
+      allFidelityMismatches: [],
+      allChangeLogs: [],
+      roundCount: 1,
+    });
+
+    expect(report.summary).toContain("AUTH BYPASS");
+    expect(report.summary).toContain("Rules: R1");
+    expect(report.summary).toContain("First note; Second note");
   });
 
   it("includes fidelity mismatches in report", async () => {

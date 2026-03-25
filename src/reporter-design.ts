@@ -32,7 +32,7 @@ export interface DesignReportOutput {
 // Main function
 // ---------------------------------------------------------------------------
 
-export async function generateDesignReport(input: DesignReportInput): Promise<DesignReportOutput> {
+export function generateDesignReport(input: DesignReportInput): DesignReportOutput {
   const lines: string[] = [];
 
   lines.push("API DESIGN ADVERSARY REPORT");
@@ -78,12 +78,15 @@ export async function generateDesignReport(input: DesignReportInput): Promise<De
     lines.push("");
 
     // Coverage — use last round's coverage (cumulative union already)
-    const cov = lastScore!.coverage;
-    lines.push("Coverage:");
-    lines.push(`  Endpoints: ${cov.endpointsExercised}/${cov.endpointsTotal} (${pct(cov.endpointsExercised, cov.endpointsTotal)})`);
-    lines.push(`  Roles: ${cov.rolesExercised}/${cov.rolesTotal} (${pct(cov.rolesExercised, cov.rolesTotal)})`);
-    lines.push(`  Invariants: ${cov.invariantsExercised}/${cov.invariantsTotal} (${pct(cov.invariantsExercised, cov.invariantsTotal)})`);
-    lines.push(`  Rejection paths: ${cov.rejectionPathsExercised}/${cov.rejectionPathsTotal}`);
+    const cov = lastScore?.coverage;
+    if (cov) {
+      lines.push("Coverage:");
+      lines.push(`  Endpoints: ${cov.endpointsExercised}/${cov.endpointsTotal} (${pct(cov.endpointsExercised, cov.endpointsTotal)})`);
+      lines.push(`  Roles: ${cov.rolesExercised}/${cov.rolesTotal} (${pct(cov.rolesExercised, cov.rolesTotal)})`);
+      lines.push(`  Transitions: ${cov.transitionsExercised}/${cov.transitionsTotal} (${pct(cov.transitionsExercised, cov.transitionsTotal)})`);
+      lines.push(`  Invariants: ${cov.invariantsExercised}/${cov.invariantsTotal} (${pct(cov.invariantsExercised, cov.invariantsTotal)})`);
+      lines.push(`  Rejection paths: ${cov.rejectionPathsExercised}/${cov.rejectionPathsTotal}`);
+    }
     lines.push("");
   }
 
@@ -108,7 +111,13 @@ export async function generateDesignReport(input: DesignReportInput): Promise<De
     for (const f of sorted) {
       const icon = f.severity === "critical" ? "🔴" : f.severity === "high" ? "🟠" : f.severity === "medium" ? "🟡" : "🟢";
       lines.push(`${icon} [${f.id}] ${f.severity.toUpperCase()} — ${f.category}`);
+      if (f.hasAuthBypass) {
+        lines.push(`   🔓 AUTH BYPASS — request allowed when it should have been rejected`);
+      }
       lines.push(`   Endpoints: ${f.affectedEndpoints.join(", ")}`);
+      if (f.affectedRules.length > 0) {
+        lines.push(`   Rules: ${f.affectedRules.join(", ")}`);
+      }
       lines.push(`   Expected: ${f.expectedBehavior}`);
       lines.push(`   Observed: ${f.observedBehavior}`);
       if (f.invariantFailures.length > 0) {
@@ -118,7 +127,7 @@ export async function generateDesignReport(input: DesignReportInput): Promise<De
         lines.push(`   Assumptions: ${f.assumptionsInvolved.join(", ")}`);
       }
       if (f.attackAnnotations.length > 0) {
-        lines.push(`   Notes: ${f.attackAnnotations[0]}`);
+        lines.push(`   Notes: ${f.attackAnnotations.join("; ")}`);
       }
       lines.push("");
     }
