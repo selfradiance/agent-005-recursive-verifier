@@ -3,8 +3,8 @@
 //
 // Separate from generator.ts (test mode). Called by the runner when --mode review.
 
-import Anthropic from "@anthropic-ai/sdk";
 import type { Hypothesis } from "./types.js";
+import { client } from "./anthropic-client.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -100,8 +100,6 @@ CONSTRAINTS:
 // Main function
 // ---------------------------------------------------------------------------
 
-const client = new Anthropic();
-
 export async function generateProofCode(
   hypotheses: Hypothesis[],
   sourceCode: string,
@@ -134,8 +132,11 @@ export async function generateProofCode(
 
 export function stripFences(raw: string): string {
   let code = raw.trim();
-  if (code.startsWith("```")) {
-    code = code.replace(/^```(?:javascript|js|typescript|ts|json)?\n?/, "").replace(/\n?```$/, "");
+  if (code.includes("```")) {
+    const fenceMatch = code.match(/```(?:javascript|js|typescript|ts|json)?\s*\n?([\s\S]*?)\n?\s*```/);
+    if (fenceMatch) {
+      code = fenceMatch[1].trim();
+    }
   }
   return code;
 }

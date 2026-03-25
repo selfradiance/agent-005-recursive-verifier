@@ -1,7 +1,7 @@
 // reporter.ts — Generates a final summary report from all rounds using Claude.
 
-import Anthropic from "@anthropic-ai/sdk";
 import type { RunResult } from "./runner.js";
+import { client } from "./anthropic-client.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,8 +57,6 @@ Be factual. Reference specific function names and test results. Do not speculate
 // ---------------------------------------------------------------------------
 // Main function
 // ---------------------------------------------------------------------------
-
-const client = new Anthropic();
 
 export async function generateReport(runResult: RunResult): Promise<ReportOutput> {
   const prompt = buildReportPrompt(runResult);

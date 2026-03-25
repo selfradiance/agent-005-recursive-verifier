@@ -3,8 +3,8 @@
 //
 // Separate from reporter.ts (test mode). Called by the CLI when --mode review.
 
-import Anthropic from "@anthropic-ai/sdk";
 import type { ProofVerdict, Hypothesis, ReviewScore, ConfirmedFinding } from "./types.js";
+import { client } from "./anthropic-client.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -112,8 +112,6 @@ Be factual. Reference specific hypothesis IDs, function names, and evidence. Do 
 // ---------------------------------------------------------------------------
 // Main function
 // ---------------------------------------------------------------------------
-
-const client = new Anthropic();
 
 export async function generateReviewReport(
   input: ReviewReportInput,

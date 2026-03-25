@@ -1,8 +1,8 @@
 // generator.ts — Claude API: takes test hypotheses from the reasoner and
 // generates executable test code for the sandbox.
 
-import Anthropic from "@anthropic-ai/sdk";
 import type { Hypothesis } from "./reasoner.js";
+import { client } from "./anthropic-client.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -82,8 +82,6 @@ CONSTRAINTS:
 // Main function
 // ---------------------------------------------------------------------------
 
-const client = new Anthropic();
-
 export async function generateTestCode(hypotheses: Hypothesis[]): Promise<GeneratorOutput> {
   const prompt = buildGeneratorPrompt(hypotheses);
 
@@ -104,10 +102,13 @@ export async function generateTestCode(hypotheses: Hypothesis[]): Promise<Genera
     .map((block) => block.text)
     .join("");
 
-  // Strip markdown fences if present
+  // Strip markdown fences if present (use includes to handle preamble text)
   let code = raw.trim();
-  if (code.startsWith("```")) {
-    code = code.replace(/^```(?:javascript|js|typescript|ts)?\n?/, "").replace(/\n?```$/, "");
+  if (code.includes("```")) {
+    const fenceMatch = code.match(/```(?:javascript|js|typescript|ts)?\s*\n?([\s\S]*?)\n?\s*```/);
+    if (fenceMatch) {
+      code = fenceMatch[1].trim();
+    }
   }
 
   return { code, raw };

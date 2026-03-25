@@ -531,20 +531,24 @@ export async function runDesignMode(options: DesignRunnerOptions): Promise<Desig
       console.log("  ✅ Model aligns with spec");
     }
 
-    // Extract assumptions from model code (parse as JSON to avoid eval in parent process)
+    // Extract assumptions from model code (bracket-depth-aware extraction + JSON parse)
     try {
-      const assumptionsMatch = currentModelCode.match(/const\s+assumptions\s*=\s*(\[[\s\S]*?\]);/);
-      if (assumptionsMatch) {
-        // Normalize JS object literals to valid JSON:
-        // - wrap unquoted property names in double quotes
-        // - replace single-quoted strings with double-quoted strings
-        // - remove trailing commas before ] or }
-        let jsonCandidate = assumptionsMatch[1]
-          .replace(/(\w+)\s*:/g, '"$1":')          // unquoted keys → "keys"
-          .replace(/'([^']*?)'/g, '"$1"')           // 'val' → "val"
-          .replace(/,\s*([}\]])/g, '$1');            // trailing commas
-        currentAssumptions = JSON.parse(jsonCandidate) as Assumption[];
-        console.log(`  📝 ${currentAssumptions.length} assumption(s) extracted from model`);
+      const declMatch = currentModelCode.match(/const\s+assumptions\s*=\s*\[/);
+      if (declMatch && declMatch.index !== undefined) {
+        const startIdx = declMatch.index + declMatch[0].length - 1; // index of opening '['
+        const arrayStr = extractBalancedBrackets(currentModelCode, startIdx);
+        if (arrayStr) {
+          // Normalize JS object literals to valid JSON:
+          // - wrap unquoted property names in double quotes
+          // - replace single-quoted strings with double-quoted strings
+          // - remove trailing commas before ] or }
+          const jsonCandidate = arrayStr
+            .replace(/(\w+)\s*:/g, '"$1":')          // unquoted keys → "keys"
+            .replace(/'([^']*?)'/g, '"$1"')           // 'val' → "val"
+            .replace(/,\s*([}\]])/g, '$1');            // trailing commas
+          currentAssumptions = JSON.parse(jsonCandidate) as Assumption[];
+          console.log(`  📝 ${currentAssumptions.length} assumption(s) extracted from model`);
+        }
       }
     } catch {
       console.log("  ⚠️  Could not extract assumptions from model code");
@@ -656,4 +660,69 @@ export async function runDesignMode(options: DesignRunnerOptions): Promise<Desig
     allChangeLogs,
     roundCount: rounds,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a balanced bracket expression starting at `startIdx` (which must
+ * point to '[' or '{'). Handles nested brackets, string literals (single,
+ * double, template), and comments so that brackets inside strings/comments
+ * are not counted. Returns the full balanced text including the outer
+ * delimiters, or null if unbalanced.
+ */
+function extractBalancedBrackets(code: string, startIdx: number): string | null {
+  const open = code[startIdx];
+  const close = open === "[" ? "]" : open === "{" ? "}" : null;
+  if (!close) return null;
+
+  let depth = 0;
+  let i = startIdx;
+  const len = code.length;
+
+  while (i < len) {
+    const ch = code[i];
+
+    // Skip single-line comments
+    if (ch === "/" && i + 1 < len && code[i + 1] === "/") {
+      i += 2;
+      while (i < len && code[i] !== "\n") i++;
+      continue;
+    }
+
+    // Skip multi-line comments
+    if (ch === "/" && i + 1 < len && code[i + 1] === "*") {
+      i += 2;
+      while (i < len && !(code[i] === "*" && i + 1 < len && code[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+
+    // Skip string literals
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const quote = ch;
+      i++;
+      while (i < len && code[i] !== quote) {
+        if (code[i] === "\\") i++;
+        i++;
+      }
+      i++;
+      continue;
+    }
+
+    if (ch === open) {
+      depth++;
+    } else if (ch === close) {
+      depth--;
+      if (depth === 0) {
+        return code.slice(startIdx, i + 1);
+      }
+    }
+
+    i++;
+  }
+
+  return null; // unbalanced
 }

@@ -16,6 +16,12 @@ export interface ValidationResult {
 
 // ---------------------------------------------------------------------------
 // Blocklist (same 34+ patterns from Agent 004)
+//
+// KNOWN LIMITATION (F-4): Template literals and computed property access can
+// bypass string-literal blocklist matching. The runtime global deletion in
+// child-runner.js provides a second defense layer. A future improvement would
+// be to use an AST-based approach or add fragment checks for "eval", "global",
+// "Function", etc.
 // ---------------------------------------------------------------------------
 
 const BLOCKLIST = [
@@ -92,9 +98,12 @@ const UNBOUNDED_LOOPS = [
 // Standalone Function( — blocks `Function(` and `new Function(` but allows `callFunction(`
 const STANDALONE_FUNCTION_PATTERN = /(?<![a-zA-Z])Function\s*\(/;
 
-// Catch constructor access via string literal assigned to variable
-// e.g., var c = 'constructor' or var c = "constructor"
-const CONSTRUCTOR_STRING_PATTERN = /['"]constructor['"]/;
+// Block any constructor access token, including template literals.
+const CONSTRUCTOR_ACCESS_PATTERN = /\bconstructor\b/;
+
+// Generated code should call toolkit methods directly so static counting
+// and runtime policy stay aligned.
+const TOOLKIT_ALIAS_PATTERN = /\b(?:const|let|var)\s+\w+\s*=\s*toolkit\.[A-Za-z_]\w*/;
 
 // ---------------------------------------------------------------------------
 // Direct model access patterns (blocked in attack code)
@@ -143,8 +152,12 @@ function checkBlocklist(code: string): ValidationResult | null {
     return { valid: false, reason: "Blocked pattern found: Function(" };
   }
 
-  if (CONSTRUCTOR_STRING_PATTERN.test(code)) {
-    return { valid: false, reason: "Blocked pattern found: constructor string literal" };
+  if (CONSTRUCTOR_ACCESS_PATTERN.test(code)) {
+    return { valid: false, reason: "Blocked pattern found: constructor access" };
+  }
+
+  if (TOOLKIT_ALIAS_PATTERN.test(code)) {
+    return { valid: false, reason: "Toolkit method aliasing is not allowed" };
   }
 
   for (const frag of CONCAT_FRAGMENTS) {

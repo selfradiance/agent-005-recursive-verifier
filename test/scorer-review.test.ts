@@ -68,12 +68,14 @@ describe("scoreReviewRound", () => {
       { hypothesisId: "H_old", target: "function:divide", category: "bug", claim: "divide mishandles zero — returns Infinity instead of throwing", severity: "high" },
     ];
 
-    const { score } = scoreReviewRound(verdicts, hypotheses, priorFindings);
+    const { score, newFindings } = scoreReviewRound(verdicts, hypotheses, priorFindings);
 
     // H1 is a duplicate (same target, same category, overlapping claim tokens)
     // H2 is novel (different target and category)
     expect(score.novel_findings).toBe(1);
     expect(score.confirmed_count).toBe(2);
+    expect(newFindings).toHaveLength(1);
+    expect(newFindings[0].hypothesisId).toBe("H2");
   });
 
   it("assigns measurement_noise for inconclusive performance hypothesis without failureMode", () => {
@@ -92,7 +94,7 @@ describe("scoreReviewRound", () => {
 
     expect(score.inconclusive_count).toBe(1);
     expect(score.inconclusive_by_failure_mode).toEqual({ measurement_noise: 1 });
-    // Verify the verdict was mutated with the assigned failureMode
-    expect(verdict.failureMode).toBe("measurement_noise");
+    // Verify the scorer does NOT mutate the original verdict object
+    expect(verdict.failureMode).toBeUndefined();
   });
 });

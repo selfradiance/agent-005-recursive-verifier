@@ -18,6 +18,19 @@
 const _send = process.send.bind(process);
 const _on = process.on.bind(process);
 const _Function = Function;
+const _defineProperty = Object.defineProperty.bind(Object);
+const _setPrototypeOf = Object.setPrototypeOf.bind(Object);
+const _freeze = Object.freeze.bind(Object);
+
+try {
+  _defineProperty(Function.prototype, "constructor", {
+    value: null,
+    writable: false,
+    configurable: false,
+  });
+} catch {
+  // Best effort hardening; the validator remains a separate defense layer.
+}
 
 // ---------------------------------------------------------------------------
 // Step 2: Delete dangerous globals
@@ -54,15 +67,34 @@ delete globalThis.Buffer;
 delete globalThis.TextEncoder;
 delete globalThis.TextDecoder;
 
+// Shared memory / atomics (prevent timing side-channels)
+delete globalThis.SharedArrayBuffer;
+delete globalThis.Atomics;
+
 // ---------------------------------------------------------------------------
 // Step 3: Set up IPC-based toolkit
 // ---------------------------------------------------------------------------
 
 let _requestId = 0;
 const _pending = new Map(); // id → { resolve, reject }
+let _toolkitCallCount = 0;
+let _toolkitCallLimit = 20;
+
+function _countToolkitCall() {
+  _toolkitCallCount++;
+  if (_toolkitCallCount > _toolkitCallLimit) {
+    throw new Error("Toolkit call limit exceeded (" + _toolkitCallLimit + ")");
+  }
+}
+
+function _hardenCallable(fn) {
+  _setPrototypeOf(fn, null);
+  return _freeze(fn);
+}
 
 // IPC round-trip: send request to parent, wait for matching response
 function _toolkitCall(method, args) {
+  _countToolkitCall();
   const id = ++_requestId;
   return new Promise((resolve, reject) => {
     _pending.set(id, { resolve, reject });
@@ -70,94 +102,96 @@ function _toolkitCall(method, args) {
   });
 }
 
-const toolkit = {
-  async callFunction(fnName, args) {
-    return _toolkitCall("callFunction", [fnName, args]);
-  },
+const toolkit = Object.create(null);
 
-  async callFunctionAsync(fnName, args) {
-    return _toolkitCall("callFunctionAsync", [fnName, args]);
-  },
+toolkit.callFunction = _hardenCallable(async function callFunction(fnName, args) {
+  return _toolkitCall("callFunction", [fnName, args]);
+});
 
-  async getExports() {
-    return _toolkitCall("getExports", []);
-  },
+toolkit.callFunctionAsync = _hardenCallable(async function callFunctionAsync(fnName, args) {
+  return _toolkitCall("callFunctionAsync", [fnName, args]);
+});
 
-  async getSourceCode() {
-    return _toolkitCall("getSourceCode", []);
-  },
+toolkit.getExports = _hardenCallable(async function getExports() {
+  return _toolkitCall("getExports", []);
+});
 
-  async assertEqual(actual, expected, label) {
-    return _toolkitCall("assertEqual", [actual, expected, label]);
-  },
+toolkit.getSourceCode = _hardenCallable(async function getSourceCode() {
+  return _toolkitCall("getSourceCode", []);
+});
 
-  async assertThrows(fnName, args, label) {
-    return _toolkitCall("assertThrows", [fnName, args, label]);
-  },
+toolkit.assertEqual = _hardenCallable(async function assertEqual(actual, expected, label) {
+  return _toolkitCall("assertEqual", [actual, expected, label]);
+});
 
-  async assertCondition(condition, label, details) {
-    return _toolkitCall("assertCondition", [condition, label, details]);
-  },
+toolkit.assertThrows = _hardenCallable(async function assertThrows(fnName, args, label) {
+  return _toolkitCall("assertThrows", [fnName, args, label]);
+});
 
-  async measureTime(fnName, args, iterations) {
-    return _toolkitCall("measureTime", [fnName, args, iterations]);
-  },
+toolkit.assertCondition = _hardenCallable(async function assertCondition(condition, label, details) {
+  return _toolkitCall("assertCondition", [condition, label, details]);
+});
 
-  async callFunctionMany(fnName, argSets) {
-    return _toolkitCall("callFunctionMany", [fnName, argSets]);
-  },
+toolkit.measureTime = _hardenCallable(async function measureTime(fnName, args, iterations) {
+  return _toolkitCall("measureTime", [fnName, args, iterations]);
+});
 
-  async comparePerformance(fnName, smallArgs, largeArgs, iterations) {
-    return _toolkitCall("comparePerformance", [fnName, smallArgs, largeArgs, iterations]);
-  },
+toolkit.callFunctionMany = _hardenCallable(async function callFunctionMany(fnName, argSets) {
+  return _toolkitCall("callFunctionMany", [fnName, argSets]);
+});
 
-  log(message) {
-    _send({ type: "log", message: String(message) });
-  },
+toolkit.comparePerformance = _hardenCallable(async function comparePerformance(fnName, smallArgs, largeArgs, iterations) {
+  return _toolkitCall("comparePerformance", [fnName, smallArgs, largeArgs, iterations]);
+});
 
-  async prove(hypothesisId, asyncFn) {
-    const start = Date.now();
-    let verdict;
+toolkit.log = _hardenCallable(function log(message) {
+  _countToolkitCall();
+  _send({ type: "log", message: String(message) });
+});
 
-    try {
-      const result = await asyncFn();
+toolkit.prove = _hardenCallable(async function prove(hypothesisId, asyncFn) {
+  _countToolkitCall();
+  const start = Date.now();
+  let verdict;
 
-      // Validate result shape
-      if (!result || typeof result !== "object" || typeof result.confirmed !== "boolean" || typeof result.evidence !== "string") {
-        verdict = {
-          hypothesisId,
-          verdict: "inconclusive",
-          evidence: ("Proof callback returned malformed result: " + JSON.stringify(result)).slice(0, 500),
-          durationMs: Date.now() - start,
-          failureMode: "bad_proof",
-        };
-      } else {
-        // Truncate evidence to 500 chars
-        const evidence = result.evidence.length > 500 ? result.evidence.slice(0, 500) : result.evidence;
-        verdict = {
-          hypothesisId,
-          verdict: result.confirmed ? "confirmed" : "refuted",
-          evidence,
-          durationMs: Date.now() - start,
-        };
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+  try {
+    const result = await asyncFn();
+
+    // Validate result shape
+    if (!result || typeof result !== "object" || typeof result.confirmed !== "boolean" || typeof result.evidence !== "string") {
       verdict = {
         hypothesisId,
         verdict: "inconclusive",
-        evidence: message.length > 500 ? message.slice(0, 500) : message,
+        evidence: ("Proof callback returned malformed result: " + JSON.stringify(result)).slice(0, 500),
         durationMs: Date.now() - start,
         failureMode: "bad_proof",
       };
+    } else {
+      // Truncate evidence to 500 chars
+      const evidence = result.evidence.length > 500 ? result.evidence.slice(0, 500) : result.evidence;
+      verdict = {
+        hypothesisId,
+        verdict: result.confirmed ? "confirmed" : "refuted",
+        evidence,
+        durationMs: Date.now() - start,
+      };
     }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    verdict = {
+      hypothesisId,
+      verdict: "inconclusive",
+      evidence: message.length > 500 ? message.slice(0, 500) : message,
+      durationMs: Date.now() - start,
+      failureMode: "bad_proof",
+    };
+  }
 
-    _send({ type: "prove-result", verdict });
-    return verdict;
-  },
-};
+  _send({ type: "prove-result", verdict });
+  return verdict;
+});
 
-Object.freeze(toolkit);
+_freeze(toolkit);
 
 // ---------------------------------------------------------------------------
 // Step 4: Listen for messages from parent via IPC
@@ -187,6 +221,9 @@ _on("message", async (msg) => {
 
   // Handle execute command
   if (msg.type === "execute" && typeof msg.code === "string") {
+    _toolkitCallCount = 0;
+    _toolkitCallLimit = msg.mode === "review" ? 50 : 20;
+
     if (msg.mode === "design") {
       // Design mode: two-phase execution (model + attacks)
       try {
@@ -240,8 +277,14 @@ _on("message", async (msg) => {
             return results;
           }
 
-          const api = {
-            reset() {
+          function hardenApiMethod(fn) {
+            _setPrototypeOf(fn, null);
+            return _freeze(fn);
+          }
+
+          const api = Object.create(null);
+
+          api.reset = hardenApiMethod(function reset() {
               state = structuredClonePolyfill(frozenModel.initState());
               stepCount = 0;
               requestCount = 0;
@@ -249,9 +292,9 @@ _on("message", async (msg) => {
               // Push a reset marker so the scorer can reliably split sequences
               trace.push({ step: 0, type: "reset" });
               invariantResults.length = 0;
-            },
+            });
 
-            request(endpoint, body) {
+          api.request = hardenApiMethod(function request(endpoint, body) {
               stepCount++;
               requestCount++;
 
@@ -273,6 +316,7 @@ _on("message", async (msg) => {
               var clonedBody = structuredClonePolyfill(body);
 
               try {
+                var previousState = structuredClonePolyfill(state);
                 var result = handler(structuredClonePolyfill(state), clonedBody);
 
                 // Validate handler response shape
@@ -299,6 +343,7 @@ _on("message", async (msg) => {
                   type: "request",
                   endpoint: endpoint,
                   body: clonedBody,
+                  preStateSnapshot: previousState,
                   response: clonedResponse,
                   stateSnapshot: structuredClonePolyfill(state),
                   invariantResults: invResults,
@@ -314,9 +359,9 @@ _on("message", async (msg) => {
                 trace.push(errEntry);
                 return { error: "handler_error", endpoint: endpoint, message: errorMsg };
               }
-            },
+            });
 
-            expectRejected(response, reason) {
+          api.expectRejected = hardenApiMethod(function expectRejected(response, reason) {
               stepCount++;
               // A null/undefined/falsy response is treated as rejected (error condition)
               const wasRejected = !response || response.status >= 400 || response.error || response.rejected === true;
@@ -328,9 +373,9 @@ _on("message", async (msg) => {
               };
               trace.push(entry);
               return { passed: !!wasRejected, reason, response };
-            },
+            });
 
-            expectAllowed(response, reason) {
+          api.expectAllowed = hardenApiMethod(function expectAllowed(response, reason) {
               stepCount++;
               // A null/undefined response is NOT allowed — must be a valid response object
               const wasAllowed = !!response && !response.error && (response.status === undefined || response.status < 400) && response.rejected !== true;
@@ -342,9 +387,9 @@ _on("message", async (msg) => {
               };
               trace.push(entry);
               return { passed: !!wasAllowed, reason, response };
-            },
+            });
 
-            assertInvariant(invariantId) {
+          api.assertInvariant = hardenApiMethod(function assertInvariant(invariantId) {
               stepCount++;
               var inv = frozenModel.invariants.find(function(i) { return i.id === invariantId; });
               if (!inv) {
@@ -368,14 +413,14 @@ _on("message", async (msg) => {
                 trace.push(errEntry);
                 return { holds: false, violation: "Invariant check threw: " + errorMsg };
               }
-            },
+            });
 
-            annotate(text) {
+          api.annotate = hardenApiMethod(function annotate(text) {
               stepCount++;
               trace.push({ step: stepCount, type: "annotation", message: String(text) });
-            },
+            });
 
-            finish() {
+          api.finish = hardenApiMethod(function finish() {
               // Collect all invariant failures from the trace
               const allInvariantFailures = [];
               for (let i = 0; i < trace.length; i++) {
@@ -403,8 +448,9 @@ _on("message", async (msg) => {
                 annotations: annotations,
                 totalSteps: stepCount,
               };
-            },
-          };
+            });
+
+          _freeze(api);
 
           return api;
         }

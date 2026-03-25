@@ -3,8 +3,8 @@
 //
 // Separate from reasoner.ts (test mode). Called by the runner when --mode review.
 
-import Anthropic from "@anthropic-ai/sdk";
 import type { Hypothesis, ProofVerdict } from "./types.js";
+import { client } from "./anthropic-client.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -125,8 +125,6 @@ Based on prior results, adjust your strategy:
 // ---------------------------------------------------------------------------
 // Main function
 // ---------------------------------------------------------------------------
-
-const client = new Anthropic();
 
 export async function generateReviewHypotheses(
   input: ReviewReasonerInput,

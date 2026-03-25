@@ -4,9 +4,9 @@
 // NormalizedSpecSummary — a structured representation of endpoints, roles,
 // resources, invariants, state variables, and transitions.
 
-import Anthropic from "@anthropic-ai/sdk";
 import type { NormalizedSpecSummary } from "./types.js";
 import { extractJson, truncateSpecText } from "./extract-json.js";
+import { client } from "./anthropic-client.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -111,8 +111,6 @@ function isValidUnknown(u: unknown): u is { description: string } {
 // ---------------------------------------------------------------------------
 // Main function
 // ---------------------------------------------------------------------------
-
-const client = new Anthropic();
 
 export async function extractSpec(input: ExtractorInput): Promise<ExtractorOutput> {
   const prompt = buildExtractionPrompt(input.specText);

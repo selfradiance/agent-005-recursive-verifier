@@ -4,9 +4,9 @@
 // NormalizedSpecSummary. The model contains: assumptions, initState, handlers,
 // and invariants — all executable in the sandbox.
 
-import Anthropic from "@anthropic-ai/sdk";
 import type { NormalizedSpecSummary, ChangeJustification, DesignFinding } from "./types.js";
 import { extractJson, truncateSpecText } from "./extract-json.js";
+import { client } from "./anthropic-client.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -184,8 +184,6 @@ VALID classification values (use ONLY these):
 // ---------------------------------------------------------------------------
 // Main function
 // ---------------------------------------------------------------------------
-
-const client = new Anthropic();
 
 export async function generateDesignModel(input: ReasonerDesignInput): Promise<ReasonerDesignOutput> {
   const isRefinement = input.round > 1 && input.priorModelCode;

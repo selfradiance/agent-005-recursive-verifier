@@ -1,7 +1,8 @@
 // reasoner.ts — Claude API: analyzes target module source code and prior
 // round results to produce test hypotheses for the generator.
 
-import Anthropic from "@anthropic-ai/sdk";
+import { client } from "./anthropic-client.js";
+import { extractJson } from "./extract-json.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -111,8 +112,6 @@ FOCUS THIS ROUND ON:
 // Main function
 // ---------------------------------------------------------------------------
 
-const client = new Anthropic();
-
 export async function generateHypotheses(input: ReasonerInput): Promise<ReasonerOutput> {
   const prompt = input.round === 1
     ? buildRound1Prompt(input)
@@ -135,34 +134,8 @@ export async function generateHypotheses(input: ReasonerInput): Promise<Reasoner
     .map((block) => block.text)
     .join("");
 
-  // Parse JSON from response — handle markdown fences and surrounding text
-  let jsonStr = raw.trim();
-
-  // Strip markdown fences
-  if (jsonStr.includes("```")) {
-    const fenceMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
-    if (fenceMatch) {
-      jsonStr = fenceMatch[1];
-    }
-  }
-
-  // If response has text before/after JSON, extract the JSON object
-  if (!jsonStr.startsWith("{")) {
-    const jsonStart = jsonStr.indexOf("{");
-    const jsonEnd = jsonStr.lastIndexOf("}");
-    if (jsonStart !== -1 && jsonEnd !== -1) {
-      jsonStr = jsonStr.slice(jsonStart, jsonEnd + 1);
-    }
-  }
-
-  // Sanitize non-standard JSON values that Claude may produce.
-  // Only replace NaN/Infinity/undefined when they appear as JSON values
-  // (after : or , or [ and optional whitespace), not inside strings.
-  jsonStr = jsonStr
-    .replace(/([:,\[]\s*)NaN\b/g, '$1"NaN"')
-    .replace(/([:,\[]\s*)Infinity\b/g, '$1"Infinity"')
-    .replace(/([:,\[]\s*)-Infinity\b/g, '$1"-Infinity"')
-    .replace(/([:,\[]\s*)undefined\b/g, '$1null');
+  // Parse JSON from response using shared extractor
+  const jsonStr = extractJson(raw);
 
   let hypotheses: Hypothesis[];
   try {

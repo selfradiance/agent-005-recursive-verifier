@@ -4,8 +4,8 @@
 // behavioral model, trying to find invariant violations, unauthorized access,
 // state inconsistencies, and spec ambiguities.
 
-import Anthropic from "@anthropic-ai/sdk";
 import type { NormalizedSpecSummary, DesignFinding, Assumption, CoverageVector } from "./types.js";
+import { client } from "./anthropic-client.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -151,8 +151,6 @@ FOCUS THIS ROUND ON:
 // ---------------------------------------------------------------------------
 // Main function
 // ---------------------------------------------------------------------------
-
-const client = new Anthropic();
 
 export async function generateAttackCode(input: GeneratorDesignInput): Promise<GeneratorDesignOutput> {
   const prompt = input.round === 1

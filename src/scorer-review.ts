@@ -97,8 +97,8 @@ export function scoreReviewRound(
 
         if (!isDuplicate(finding, priorFindings)) {
           novelCount++;
+          newFindings.push(finding);
         }
-        newFindings.push(finding);
       } else {
         novelCount++;
       }
@@ -107,16 +107,10 @@ export function scoreReviewRound(
     } else {
       inconclusive++;
 
-      // Post-process failureMode assignment
+      // Infer failureMode for scoring (without mutating the original verdict)
       let mode = v.failureMode;
       if (!mode && h) {
-        if (h.category === "performance") {
-          mode = "measurement_noise";
-          v.failureMode = mode;
-        } else {
-          mode = "bad_hypothesis";
-          v.failureMode = mode;
-        }
+        mode = h.category === "performance" ? "measurement_noise" : "bad_hypothesis";
       }
       if (mode) {
         inconclusiveByMode[mode] = (inconclusiveByMode[mode] ?? 0) + 1;
@@ -124,7 +118,8 @@ export function scoreReviewRound(
     }
 
     // Clean proof = no tool_error and no bad_proof
-    if (v.failureMode !== "tool_error" && v.failureMode !== "bad_proof") {
+    const effectiveMode = v.failureMode ?? (hypothesisMap.get(v.hypothesisId)?.category === "performance" ? "measurement_noise" : undefined);
+    if (effectiveMode !== "tool_error" && effectiveMode !== "bad_proof") {
       cleanProofs++;
     }
   }

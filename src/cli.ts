@@ -49,6 +49,9 @@ function parseArgs(argv: string[]): CliArgs {
         args.rounds = parseInt(argv[++i] ?? "3", 10);
         break;
       case "--mode":
+        // KNOWN LIMITATION (F-7): This cast accepts any string as Mode.
+        // Validated later at line ~144 before use. The type is technically
+        // a lie between parse and validate, but functionally safe.
         args.mode = (argv[++i] ?? "test") as Mode;
         break;
       case "--spec":
