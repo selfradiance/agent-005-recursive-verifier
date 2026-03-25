@@ -121,6 +121,8 @@ export type DesignFinding = {
   invariantFailures: string[];
   reproducibilityStatus: "reproduced_multiple" | "reproduced_once" | "flaky";
   attackAnnotations: string[];
+  /** True when an expectRejected assertion failed (request allowed when it should have been denied) */
+  hasAuthBypass: boolean;
 };
 
 export type Assumption = {

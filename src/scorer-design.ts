@@ -65,15 +65,18 @@ export function checkFidelity(input: FidelityCheckInput): FidelityMismatch[] {
     }
   }
 
-  // Check 3: Look for handlers that don't match any spec endpoint
+  // Check 3: Look for handlers that don't match any spec endpoint (deduplicated)
   const handlerPattern = /["'`]((?:GET|POST|PUT|PATCH|DELETE)\s+\/[^"'`]+)["'`]/g;
+  const seenExtraHandlers = new Set<string>();
   let match;
   while ((match = handlerPattern.exec(modelCode)) !== null) {
     const handlerKey = match[1];
+    if (seenExtraHandlers.has(handlerKey)) continue;
     const hasEndpoint = specSummary.endpoints.some(
       e => `${e.method} ${e.path}` === handlerKey,
     );
     if (!hasEndpoint) {
+      seenExtraHandlers.add(handlerKey);
       mismatches.push({
         type: "extra_handler",
         description: `Handler exists for endpoint not in spec: ${handlerKey}`,
@@ -89,23 +92,30 @@ export function checkFidelity(input: FidelityCheckInput): FidelityMismatch[] {
 // Attribution — classify findings
 // ---------------------------------------------------------------------------
 
+export interface AttributionContext {
+  hasExpectRejectedFail?: boolean;
+  hasExpectAllowedFail?: boolean;
+}
+
 export function attributeFinding(
   trace: TraceEntry[],
   invariantFailures: InvariantResult[],
   assumptions: Assumption[],
+  context?: AttributionContext,
 ): AttributionCategory {
-  // If invariants failed AND trace has valid requests, likely a real spec flaw
   const hasInvariantFailures = invariantFailures.length > 0;
   const hasHandlerErrors = trace.some(t => t.type === "handler_error" || t.type === "handler_shape_error");
   const hasUnknownHandlers = trace.some(t => t.type === "unknown_handler");
+  const hasExpectRejectedFail = context?.hasExpectRejectedFail ?? false;
+  const hasExpectAllowedFail = context?.hasExpectAllowedFail ?? false;
 
   // Attack defect: trace has errors suggesting the attack code was wrong
-  if (hasUnknownHandlers && !hasInvariantFailures) {
+  if (hasUnknownHandlers && !hasInvariantFailures && !hasExpectRejectedFail) {
     return "attack_defect";
   }
 
   // Model defect: handler threw errors, suggesting model bugs
-  if (hasHandlerErrors && !hasInvariantFailures) {
+  if (hasHandlerErrors && !hasInvariantFailures && !hasExpectRejectedFail) {
     return "model_defect";
   }
 
@@ -126,17 +136,22 @@ export function attributeFinding(
   );
 
   // Ambiguity risk: finding involves low-confidence assumptions
-  if (hasInvariantFailures && lowConfidenceAssumptions.length > 0) {
+  if ((hasInvariantFailures || hasExpectRejectedFail) && lowConfidenceAssumptions.length > 0) {
     return "ambiguity_risk";
   }
 
-  // High confidence flaw: invariants violated with no model/attack errors
-  if (hasInvariantFailures && !hasHandlerErrors && !hasUnknownHandlers) {
+  // High confidence flaw: invariants violated or expect-rejected failed with no model/attack errors
+  if ((hasInvariantFailures || hasExpectRejectedFail) && !hasHandlerErrors && !hasUnknownHandlers) {
     return "high_confidence_flaw";
   }
 
   // If both handler errors AND invariant failures, could be model or spec
   if (hasInvariantFailures && hasHandlerErrors) {
+    return "model_defect";
+  }
+
+  // expect_allowed failed with no other signals — model may be too strict
+  if (hasExpectAllowedFail && !hasInvariantFailures && !hasExpectRejectedFail) {
     return "model_defect";
   }
 
@@ -317,7 +332,10 @@ export function buildFindings(
     if (isDuplicate) continue;
 
     // Build the finding
-    const category = attributeFinding(seq, seqInvariantFailures, assumptions);
+    const category = attributeFinding(seq, seqInvariantFailures, assumptions, {
+      hasExpectRejectedFail,
+      hasExpectAllowedFail,
+    });
     const severity = categorizeSeverity(seqInvariantFailures, hasExpectRejectedFail, hasExpectAllowedFail);
 
     // Find affected rules from invariant failures and business rules
@@ -337,15 +355,16 @@ export function buildFindings(
       }
     }
 
-    // Find involved assumptions
-    const involvedAssumptions: string[] = [];
+    // Find involved assumptions (deduplicated)
+    const involvedAssumptionSet = new Set<string>();
     for (const anno of seqAnnotations) {
       for (const assumption of assumptions) {
         if (anno.includes(assumption.id)) {
-          involvedAssumptions.push(assumption.id);
+          involvedAssumptionSet.add(assumption.id);
         }
       }
     }
+    const involvedAssumptions = [...involvedAssumptionSet];
 
     const findingId = `F${round}-${findings.length + existingFindings.length + 1}`;
 
@@ -370,6 +389,7 @@ export function buildFindings(
       invariantFailures: failedInvIds,
       reproducibilityStatus: "reproduced_once",
       attackAnnotations: seqAnnotations,
+      hasAuthBypass: hasExpectRejectedFail,
     });
   }
 
@@ -421,8 +441,7 @@ export function scoreDesignRound(
       invariantViolations += finding.invariantFailures.length;
     }
 
-    if (finding.category === "high_confidence_flaw" &&
-      finding.observedBehavior.includes("allowed when it should have been rejected")) {
+    if (finding.category === "high_confidence_flaw" && finding.hasAuthBypass) {
       unauthorizedAccessPaths++;
     }
 

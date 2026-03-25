@@ -39,29 +39,46 @@ export async function generateDesignReport(input: DesignReportInput): Promise<De
   lines.push("═".repeat(55));
   lines.push("");
 
-  // Summary stats
+  // Summary stats — aggregate across all per-round scores
   const lastScore = input.allScores[input.allScores.length - 1];
   lines.push(`Rounds: ${input.roundCount}`);
   lines.push(`Total unique findings: ${input.allFindings.length}`);
 
-  if (lastScore) {
-    lines.push(`Invariant violations: ${lastScore.invariantViolations}`);
-    lines.push(`Unauthorized access paths: ${lastScore.unauthorizedAccessPaths}`);
-    lines.push(`State inconsistencies: ${lastScore.stateInconsistencies}`);
-    lines.push(`Spec ambiguities surfaced: ${lastScore.specAmbiguitiesSurfaced}`);
+  if (input.allScores.length > 0) {
+    // Sum metrics across all rounds (each score is now per-round, not cumulative)
+    let totalInvariantViolations = 0;
+    let totalUnauthorizedAccessPaths = 0;
+    let totalStateInconsistencies = 0;
+    let totalSpecAmbiguities = 0;
+    const totalAttribution: Record<string, number> = {};
+
+    for (const score of input.allScores) {
+      totalInvariantViolations += score.invariantViolations;
+      totalUnauthorizedAccessPaths += score.unauthorizedAccessPaths;
+      totalStateInconsistencies += score.stateInconsistencies;
+      totalSpecAmbiguities += score.specAmbiguitiesSurfaced;
+      for (const [cat, count] of Object.entries(score.attributionBreakdown)) {
+        totalAttribution[cat] = (totalAttribution[cat] ?? 0) + count;
+      }
+    }
+
+    lines.push(`Invariant violations: ${totalInvariantViolations}`);
+    lines.push(`Unauthorized access paths: ${totalUnauthorizedAccessPaths}`);
+    lines.push(`State inconsistencies: ${totalStateInconsistencies}`);
+    lines.push(`Spec ambiguities surfaced: ${totalSpecAmbiguities}`);
     lines.push("");
 
-    // Attribution breakdown
+    // Attribution breakdown (aggregated)
     lines.push("Attribution Breakdown:");
-    for (const [category, count] of Object.entries(lastScore.attributionBreakdown)) {
+    for (const [category, count] of Object.entries(totalAttribution)) {
       if (count > 0) {
         lines.push(`  ${category}: ${count}`);
       }
     }
     lines.push("");
 
-    // Coverage
-    const cov = lastScore.coverage;
+    // Coverage — use last round's coverage (cumulative union already)
+    const cov = lastScore!.coverage;
     lines.push("Coverage:");
     lines.push(`  Endpoints: ${cov.endpointsExercised}/${cov.endpointsTotal} (${pct(cov.endpointsExercised, cov.endpointsTotal)})`);
     lines.push(`  Roles: ${cov.rolesExercised}/${cov.rolesTotal} (${pct(cov.rolesExercised, cov.rolesTotal)})`);

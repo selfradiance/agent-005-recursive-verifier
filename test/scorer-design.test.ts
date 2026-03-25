@@ -306,6 +306,7 @@ describe("buildFindings", () => {
       invariantFailures: ["INV1"],
       reproducibilityStatus: "reproduced_once",
       attackAnnotations: [],
+      hasAuthBypass: false,
     }];
 
     const findings = buildFindings(attackResult, sampleAssumptions, sampleSpec, 2, existing);
@@ -347,6 +348,7 @@ describe("scoreDesignRound", () => {
         invariantFailures: ["INV1"],
         reproducibilityStatus: "reproduced_once",
         attackAnnotations: [],
+        hasAuthBypass: true,
       },
       {
         id: "F1-2",
@@ -361,6 +363,7 @@ describe("scoreDesignRound", () => {
         invariantFailures: [],
         reproducibilityStatus: "reproduced_once",
         attackAnnotations: [],
+        hasAuthBypass: false,
       },
     ];
 

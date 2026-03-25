@@ -48,6 +48,7 @@ describe("generateDesignReport", () => {
         invariantFailures: ["INV1"],
         reproducibilityStatus: "reproduced_once",
         attackAnnotations: ["Testing status validation"],
+        hasAuthBypass: false,
       },
       {
         id: "F1-2",
@@ -62,6 +63,7 @@ describe("generateDesignReport", () => {
         invariantFailures: [],
         reproducibilityStatus: "reproduced_once",
         attackAnnotations: [],
+        hasAuthBypass: false,
       },
     ];
 

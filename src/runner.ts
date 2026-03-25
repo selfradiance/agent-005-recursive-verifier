@@ -621,7 +621,7 @@ export async function runDesignMode(options: DesignRunnerOptions): Promise<Desig
     );
     currentCoverage = coverage;
 
-    const score = scoreDesignRound(allFindings, coverage);
+    const score = scoreDesignRound(roundFindings, coverage);
     allScores.push(score);
 
     const formattedScore = formatDesignScoreForReasoner(score, round);
