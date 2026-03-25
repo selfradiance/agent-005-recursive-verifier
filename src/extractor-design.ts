@@ -6,6 +6,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { NormalizedSpecSummary } from "./types.js";
+import { extractJson, truncateSpecText } from "./extract-json.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,11 +26,12 @@ export interface ExtractorOutput {
 // ---------------------------------------------------------------------------
 
 function buildExtractionPrompt(specText: string): string {
+  const safeSpec = truncateSpecText(specText);
   return `You are a precise API specification analyzer. Parse the following API specification into a structured summary.
 
 API SPECIFICATION:
 <spec>
-${specText}
+${safeSpec}
 </spec>
 
 YOUR TASK:
@@ -67,37 +69,43 @@ Return JSON only, no markdown fences:
 }
 
 // ---------------------------------------------------------------------------
-// JSON parsing helper (shared with reasoner pattern)
+// Element-level validation helpers
 // ---------------------------------------------------------------------------
 
-function extractJson(raw: string): string {
-  let jsonStr = raw.trim();
+function isValidEndpoint(e: unknown): e is { path: string; method: string; description: string } {
+  return !!e && typeof e === "object" && typeof (e as Record<string, unknown>).path === "string"
+    && typeof (e as Record<string, unknown>).method === "string"
+    && typeof (e as Record<string, unknown>).description === "string";
+}
 
-  // Strip markdown fences
-  if (jsonStr.includes("```")) {
-    const fenceMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
-    if (fenceMatch) {
-      jsonStr = fenceMatch[1];
-    }
-  }
+function isValidActor(a: unknown): a is { role: string; permissions: string[] } {
+  return !!a && typeof a === "object" && typeof (a as Record<string, unknown>).role === "string"
+    && Array.isArray((a as Record<string, unknown>).permissions);
+}
 
-  // Extract JSON object if surrounded by text
-  if (!jsonStr.startsWith("{")) {
-    const jsonStart = jsonStr.indexOf("{");
-    const jsonEnd = jsonStr.lastIndexOf("}");
-    if (jsonStart !== -1 && jsonEnd !== -1) {
-      jsonStr = jsonStr.slice(jsonStart, jsonEnd + 1);
-    }
-  }
+function isValidNameDesc(r: unknown): r is { name: string; description: string } {
+  return !!r && typeof r === "object" && typeof (r as Record<string, unknown>).name === "string"
+    && typeof (r as Record<string, unknown>).description === "string";
+}
 
-  // Sanitize non-standard values
-  jsonStr = jsonStr
-    .replace(/([:,\[]\s*)NaN\b/g, '$1"NaN"')
-    .replace(/([:,\[]\s*)Infinity\b/g, '$1"Infinity"')
-    .replace(/([:,\[]\s*)-Infinity\b/g, '$1"-Infinity"')
-    .replace(/([:,\[]\s*)undefined\b/g, '$1null');
+function isValidIdRule(r: unknown): r is { id: string; rule: string } {
+  return !!r && typeof r === "object" && typeof (r as Record<string, unknown>).id === "string"
+    && typeof (r as Record<string, unknown>).rule === "string";
+}
 
-  return jsonStr;
+function isValidTransition(t: unknown): t is { from: string; to: string; trigger: string } {
+  return !!t && typeof t === "object" && typeof (t as Record<string, unknown>).from === "string"
+    && typeof (t as Record<string, unknown>).to === "string"
+    && typeof (t as Record<string, unknown>).trigger === "string";
+}
+
+function isValidForbidden(f: unknown): f is { description: string; reason: string } {
+  return !!f && typeof f === "object" && typeof (f as Record<string, unknown>).description === "string"
+    && typeof (f as Record<string, unknown>).reason === "string";
+}
+
+function isValidUnknown(u: unknown): u is { description: string } {
+  return !!u && typeof u === "object" && typeof (u as Record<string, unknown>).description === "string";
 }
 
 // ---------------------------------------------------------------------------
@@ -131,15 +139,15 @@ export async function extractSpec(input: ExtractorInput): Promise<ExtractorOutpu
   try {
     const parsed = JSON.parse(jsonStr);
     const summary: NormalizedSpecSummary = {
-      endpoints: parsed.endpoints ?? [],
-      actors: parsed.actors ?? [],
-      resources: parsed.resources ?? [],
-      stateVariables: parsed.stateVariables ?? [],
-      businessRules: parsed.businessRules ?? [],
-      invariants: parsed.invariants ?? [],
-      allowedTransitions: parsed.allowedTransitions ?? [],
-      forbiddenTransitions: parsed.forbiddenTransitions ?? [],
-      unknowns: parsed.unknowns ?? [],
+      endpoints: Array.isArray(parsed.endpoints) ? parsed.endpoints.filter(isValidEndpoint) : [],
+      actors: Array.isArray(parsed.actors) ? parsed.actors.filter(isValidActor) : [],
+      resources: Array.isArray(parsed.resources) ? parsed.resources.filter(isValidNameDesc) : [],
+      stateVariables: Array.isArray(parsed.stateVariables) ? parsed.stateVariables.filter(isValidNameDesc) : [],
+      businessRules: Array.isArray(parsed.businessRules) ? parsed.businessRules.filter(isValidIdRule) : [],
+      invariants: Array.isArray(parsed.invariants) ? parsed.invariants.filter(isValidIdRule) : [],
+      allowedTransitions: Array.isArray(parsed.allowedTransitions) ? parsed.allowedTransitions.filter(isValidTransition) : [],
+      forbiddenTransitions: Array.isArray(parsed.forbiddenTransitions) ? parsed.forbiddenTransitions.filter(isValidForbidden) : [],
+      unknowns: Array.isArray(parsed.unknowns) ? parsed.unknowns.filter(isValidUnknown) : [],
     };
     return { summary, raw };
   } catch (err) {

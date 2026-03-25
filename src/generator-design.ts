@@ -47,6 +47,10 @@ function buildAttackPrompt(input: GeneratorDesignInput): string {
     .map(a => `  [${a.id}] (${a.kind}, ${a.confidence}): ${a.text}`)
     .join("\n");
 
+  const allowedTransitionsList = input.specSummary.allowedTransitions
+    .map(t => `  ${t.from} → ${t.to} (trigger: ${t.trigger})`)
+    .join("\n");
+
   const forbiddenList = input.specSummary.forbiddenTransitions
     .map(t => `  - ${t.description} (reason: ${t.reason})`)
     .join("\n");
@@ -63,6 +67,9 @@ ${businessRulesList || "  (none identified)"}
 
 Invariants (state properties):
 ${invariantsList}
+
+Allowed transitions:
+${allowedTransitionsList || "  (none identified)"}
 
 Forbidden transitions:
 ${forbiddenList || "  (none explicitly stated)"}

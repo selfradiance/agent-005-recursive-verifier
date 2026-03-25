@@ -6,6 +6,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { NormalizedSpecSummary, ChangeJustification, DesignFinding } from "./types.js";
+import { extractJson, truncateSpecText } from "./extract-json.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,11 +52,21 @@ function buildModelPrompt(input: ReasonerDesignInput): string {
     .map(u => `  - ${u.description}`)
     .join("\n");
 
+  const allowedTransitionsList = input.specSummary.allowedTransitions
+    .map(t => `  ${t.from} → ${t.to} (trigger: ${t.trigger})`)
+    .join("\n");
+
+  const forbiddenTransitionsList = input.specSummary.forbiddenTransitions
+    .map(t => `  - ${t.description} (reason: ${t.reason})`)
+    .join("\n");
+
+  const safeSpec = truncateSpecText(input.specText);
+
   return `You are a behavioral model generator for API design verification.
 
 ORIGINAL SPEC:
 <spec>
-${input.specText}
+${safeSpec}
 </spec>
 
 NORMALIZED SUMMARY:
@@ -70,6 +81,12 @@ ${businessRulesList || "  (none identified)"}
 
 Invariants (state properties that must always hold):
 ${invariantsList}
+
+Allowed Transitions:
+${allowedTransitionsList || "  (none identified)"}
+
+Forbidden Transitions:
+${forbiddenTransitionsList || "  (none explicitly stated)"}
 
 Unknowns/Ambiguities:
 ${unknownsList || "  (none identified)"}
@@ -115,11 +132,19 @@ function buildRefinementPrompt(input: ReasonerDesignInput): string {
     .map(f => `  [${f.id}] ${f.category}/${f.severity}: ${f.expectedBehavior} vs ${f.observedBehavior}`)
     .join("\n");
 
+  // Guard: truncate prior model if excessively large (keep last 80K chars which
+  // includes the most-refined handlers at the bottom of the file)
+  const MAX_MODEL_CHARS = 80_000;
+  let priorModel = input.priorModelCode ?? "";
+  if (priorModel.length > MAX_MODEL_CHARS) {
+    priorModel = "[... model truncated — showing last 80K chars ...]\n" + priorModel.slice(-MAX_MODEL_CHARS);
+  }
+
   return `${base}
 
 PRIOR MODEL CODE (to refine):
 <model>
-${input.priorModelCode}
+${priorModel}
 </model>
 
 FINDINGS FROM PRIOR ROUND:
@@ -154,31 +179,6 @@ VALID classification values (use ONLY these):
 - "suspicious_adaptation" — change that might paper over a real flaw
 - "defensive_hardening" — added validation/guards for robustness
 - "edge_case_handling" — handled an edge case not covered before`;
-}
-
-// ---------------------------------------------------------------------------
-// JSON parsing helper
-// ---------------------------------------------------------------------------
-
-function extractJson(raw: string): string {
-  let jsonStr = raw.trim();
-
-  if (jsonStr.includes("```")) {
-    const fenceMatch = jsonStr.match(/```(?:json|javascript|js)?\s*\n?([\s\S]*?)\n?\s*```/);
-    if (fenceMatch) {
-      jsonStr = fenceMatch[1];
-    }
-  }
-
-  if (!jsonStr.startsWith("{") && !jsonStr.startsWith("const ") && !jsonStr.startsWith("//") && !jsonStr.startsWith("var ")) {
-    const jsonStart = jsonStr.indexOf("{");
-    const jsonEnd = jsonStr.lastIndexOf("}");
-    if (jsonStart !== -1 && jsonEnd !== -1) {
-      jsonStr = jsonStr.slice(jsonStart, jsonEnd + 1);
-    }
-  }
-
-  return jsonStr;
 }
 
 // ---------------------------------------------------------------------------
