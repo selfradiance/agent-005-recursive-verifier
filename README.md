@@ -1,60 +1,109 @@
 # Agent 005: Recursive Verifier
 
-A recursive verification framework that generates executable proof about code and design — not opinions. It uses the Claude API to reason about code, generate JavaScript verification scripts, execute them in a sandboxed child process, score the outcomes, and iterate. Three modes, same engine: reason → generate → execute → score → repeat.
+Give it a spec before you build. Agent 005 takes an endpoint-based API spec, turns it into an executable behavioral model, attacks that model in a sandbox, and tells you what it found: likely design flaws, ambiguity risks, and coverage gaps.
 
-## Why This Exists
+v0.3.0's flagship public path is design mode.
 
-Traditional code review is opinion-based — a reviewer reads code and says "this looks fine" or "I think this might break." Agent 005 replaces opinions with executable proof. Instead of guessing whether code handles edge cases, it generates test inputs and runs them. Instead of guessing whether a hypothesis about a bug is correct, it writes a proof script and executes it.
-
-The recursive loop means each round learns from the previous one — gaps identified in round 1 become targets in round 2.
-
-## How It Relates to AgentGate
-
-This project reuses the four-layer sandbox architecture from [Agent 004 (Red Team Simulator)](https://github.com/selfradiance/agentgate-red-team-simulator) but repurposes it for constructive verification instead of adversarial attack. It's the same sandbox that survived 100+ adversarial tests, now turned toward something productive.
-
-[AgentGate](https://github.com/selfradiance/agentgate) is the broader ecosystem substrate.
-
-## Three Verification Modes
-
-| Mode | What it does | Input |
-|------|-------------|-------|
-| **Test** | Generates and runs test cases against a target module | `--file module.ts` |
-| **Review** | Generates falsifiable code quality hypotheses and proves/disproves them with executable scripts | `--mode review --file module.ts` |
-| **Design** | Takes a Markdown spec, generates behavioral attack scripts to find logic holes before you build | `--mode design --spec spec.md` |
-
-## What's Implemented
-
-- Recursive loop: reason → generate → validate → execute → score (configurable rounds, max 10)
-- Four-layer sandbox: Node 22 permission flags, global nullification, IPC-only toolkit, string-level validator (34+ patterns)
-- Module host with dedicated child runtime and idle shutdown timer
-- Mode-specific reasoners, generators, scorers, and reporters
-- Claude API integration for all reasoning and generation steps
-- 8 metrics + 9 edge case classes (test mode)
-- IPC result serialization handling NaN, Infinity, BigInt, Symbol
-
-## Quick Start
+## Start Here
 
 ```bash
 cd ~/Desktop/projects/agent-005-recursive-verifier
 cp .env.example .env  # add ANTHROPIC_API_KEY
 npm install
+```
 
-# Test mode — run verification against a module
-npx tsx src/cli.ts --file path/to/module.ts --rounds 3
+Then start with one of the built-in design-mode examples:
 
-# Review mode — code quality proof
-npx tsx src/cli.ts --mode review --file path/to/module.ts --rounds 3
+```bash
+# Flawed spec — should surface stronger design findings
+npx tsx src/cli.ts --mode design --spec examples/sample-api-spec-flawed.md --rounds 3
 
-# Design mode — break a spec before building
+# Ambiguous spec — should surface ambiguity risks and assumption-heavy findings
+npx tsx src/cli.ts --mode design --spec examples/sample-api-spec-ambiguous.md --rounds 3
+```
+
+What you should expect to see:
+
+- `sample-api-spec-flawed.md` should push the report toward higher-confidence design problems such as authorization gaps, state inconsistencies, or critical/high findings.
+- `sample-api-spec-ambiguous.md` should push the report toward ambiguity-heavy output: low-confidence assumptions, underspecified behavior, and clarification targets.
+- Both runs should end with an `API DESIGN ADVERSARY REPORT` summarizing findings, attribution, and coverage across endpoints, roles, transitions, invariants, and rejection paths.
+
+## Flagship Use Case
+
+Design mode is the sharpest entry point for Agent 005 in v0.3.0:
+
+1. Read a markdown/text API spec.
+2. Extract endpoints, actors, rules, invariants, transitions, and unknowns.
+3. Generate a behavioral model in JavaScript.
+4. Generate adversarial request sequences against that model.
+5. Report what broke, what stayed ambiguous, and how much of the design surface was exercised.
+
+It does not hit a live API. It attacks the design before implementation exists.
+
+## Scope
+
+Current v0.3.0 scope is intentionally narrow:
+
+- Audits endpoint-based API specs written in markdown or plain text
+- Works best when the spec names concrete endpoints, actors, rules, and invariants
+- Uses generated JavaScript models and attack sequences inside the sandbox
+
+What it is not:
+
+- Not a general protocol auditor
+- Not a whole-system architecture auditor
+- Not a live API scanner
+- Not a code-modification tool
+
+## Other Modes
+
+Agent 005 still includes two secondary verification paths on the same recursive engine:
+
+- **Test** — generates and runs test cases against a target module: `--file module.ts`
+- **Review** — generates falsifiable code-quality hypotheses and proves/disproves them with executable scripts: `--mode review --file module.ts`
+
+Those modes remain available, but design mode is the clearest public "start here" story in v0.3.0.
+
+## Why This Exists
+
+Traditional review is often opinion-based — someone reads code or a spec and says "this looks fine" or "this might break." Agent 005 is built to replace that with executable evidence. Instead of guessing whether an API design is sound, it builds a behavior model, runs adversarial sequences, and scores the outcome.
+
+The recursive loop means each round learns from the previous one: gaps identified in round 1 become targets in round 2.
+
+## What's Implemented
+
+- Recursive loop: reason → generate → validate → execute → score (configurable rounds, max 10)
+- Four-layer sandbox: Node 22 permission flags, global nullification, IPC-only toolkit, string-level validator (34+ patterns)
+- Design-mode pipeline: spec extraction → behavioral model generation → adversarial attack generation → report
+- Mode-specific reasoners, generators, scorers, and reporters
+- Claude API integration for all reasoning and generation steps
+- Module host with dedicated child runtime and idle shutdown timer for test/review modes
+- IPC result serialization handling NaN, Infinity, BigInt, Symbol
+
+## Design Mode Command
+
+```bash
 npx tsx src/cli.ts --mode design --spec path/to/spec.md --rounds 3
 ```
 
-## Scope / Non-Goals
+Helpful examples:
 
-- Verification only — no code modification
-- JavaScript sandbox only — generated scripts are JS, not TypeScript
-- Single-module target — no multi-file project analysis
-- No AgentGate bond integration in v0.3.0 (standalone verification tool)
+```bash
+# Intentional flaws
+npx tsx src/cli.ts --mode design --spec examples/sample-api-spec-flawed.md
+
+# Intentional ambiguity
+npx tsx src/cli.ts --mode design --spec examples/sample-api-spec-ambiguous.md
+
+# More balanced sample
+npx tsx src/cli.ts --mode design --spec examples/sample-api-spec.md
+```
+
+## How It Relates to AgentGate
+
+This project reuses the four-layer sandbox architecture from [Agent 004 (Red Team Simulator)](https://github.com/selfradiance/agentgate-red-team-simulator) but repurposes it for constructive verification instead of adversarial attack. It is standalone in v0.3.0 and does not require AgentGate to run.
+
+[AgentGate](https://github.com/selfradiance/agentgate) is the broader ecosystem substrate.
 
 ## Tests
 
@@ -72,7 +121,7 @@ npm test
 
 ## Status
 
-Complete — v0.3.0 shipped (three verification modes). 149 tests.
+Complete — v0.3.0 shipped. Public flagship path: pre-build API spec auditing via design mode.
 
 ## License
 

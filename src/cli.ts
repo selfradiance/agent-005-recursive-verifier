@@ -78,23 +78,25 @@ function printHelp(): void {
   console.log(`
 Agent 005 — Recursive Verifier v0.3.0
 
+Flagship path: audit an endpoint-based API spec before you build it.
+
 USAGE:
-  npx tsx src/cli.ts --file <path> [options]
   npx tsx src/cli.ts --mode design --spec <path> [options]
+  npx tsx src/cli.ts --file <path> [options]
 
 OPTIONS:
-  --file <path>        Path to target .ts or .js module (required for test/review modes)
   --mode <mode>        "test" | "review" | "design" (default: test)
   --spec <path>        Path to API spec file (required for design mode, markdown or text)
+  --file <path>        Path to target .ts or .js module (required for test/review modes)
   --functions <names>  Comma-separated function names to focus on (test/review modes)
   --rounds <n>         Number of recursive rounds (default: 3, max: 10)
   --verbose            Show generated code before execution
   --help, -h           Show this help message
 
 EXAMPLES:
+  npx tsx src/cli.ts --mode design --spec examples/sample-api-spec-flawed.md --rounds 3
+  npx tsx src/cli.ts --mode design --spec examples/sample-api-spec-ambiguous.md --rounds 3
   npx tsx src/cli.ts --file examples/sample-math.ts
-  npx tsx src/cli.ts --file src/parser.ts --mode review --rounds 5
-  npx tsx src/cli.ts --mode design --spec examples/sample-api-spec.md
 `);
 }
 
@@ -105,7 +107,7 @@ EXAMPLES:
 const MODE_LABELS: Record<Mode, string> = {
   test: "Test Generation",
   review: "Code Review",
-  design: "API Design Adversary",
+  design: "Pre-Build API Spec Auditor",
 };
 
 function printBanner(file: string, exportCount: number, rounds: number, mode: Mode): void {
@@ -124,7 +126,7 @@ function printDesignBanner(specPath: string, rounds: number): void {
   console.log(`
 ═══════════════════════════════════════════════════════════
   AGENT 005 — RECURSIVE VERIFIER v0.3.0
-  Mode: API Design Adversary
+  Mode: Pre-Build API Spec Auditor
   Spec: ${specPath}
   Rounds: ${rounds}
 ═══════════════════════════════════════════════════════════
