@@ -12,21 +12,52 @@ cp .env.example .env  # add ANTHROPIC_API_KEY
 npm install
 ```
 
-Then start with one of the built-in design-mode examples:
+If you only run one command first, run this:
 
 ```bash
-# Flawed spec — should surface stronger design findings
 npx tsx src/cli.ts --mode design --spec examples/sample-api-spec-flawed.md --rounds 3
+```
 
-# Ambiguous spec — should surface ambiguity risks and assumption-heavy findings
+This is the blessed newcomer demo path. It uses the intentionally flawed sample spec and is the clearest way to see what Agent 005 is for before you point it at your own spec.
+
+What that first run is doing:
+
+1. Reads a markdown API spec with named endpoints, roles, rules, and invariants.
+2. Extracts a structured summary from the spec.
+3. Builds an executable behavioral model of the API.
+4. Generates adversarial request sequences against that model.
+5. Prints a final design report showing what it found.
+
+What to look for in the terminal:
+
+- A startup banner showing `Mode: Pre-Build API Spec Auditor`
+- Round-by-round progress such as spec extraction, model generation, attack generation, and attack execution
+- A final `API DESIGN ADVERSARY REPORT`
+- Findings grouped into concrete buckets such as likely design flaws, ambiguity risks, coverage, and fidelity issues
+```
+
+What you should expect from the flawed demo:
+
+- `sample-api-spec-flawed.md` should push the report toward higher-confidence design problems such as authorization gaps, state inconsistencies, or critical/high findings.
+- Expect stronger “this spec has a real problem” style output than the ambiguous sample.
+- Both the wording and severity are heuristic, but this sample is meant to demonstrate the strongest flagship path.
+
+After that first run, use this second command:
+
+```bash
 npx tsx src/cli.ts --mode design --spec examples/sample-api-spec-ambiguous.md --rounds 3
 ```
 
-What you should expect to see:
+What you should expect from the ambiguous demo:
 
-- `sample-api-spec-flawed.md` should push the report toward higher-confidence design problems such as authorization gaps, state inconsistencies, or critical/high findings.
 - `sample-api-spec-ambiguous.md` should push the report toward ambiguity-heavy output: low-confidence assumptions, underspecified behavior, and clarification targets.
-- Both runs should end with an `API DESIGN ADVERSARY REPORT` summarizing findings, attribution, and coverage across endpoints, roles, transitions, invariants, and rejection paths.
+- Expect more “the spec leaves this open” style findings than “this rule is clearly broken” style findings.
+- This is the best demo for seeing how Agent 005 distinguishes design flaws from spec gaps.
+
+Beginner note:
+
+- If your own spec does not describe concrete HTTP-style endpoints, actors, and behaviors, v0.3.0 may not produce a useful design audit. The current scope is endpoint-based API specs in markdown/text.
+- Agent 005 does not call a live server here. It models the design and attacks the model before implementation exists.
 
 ## Flagship Use Case
 
@@ -86,16 +117,16 @@ The recursive loop means each round learns from the previous one: gaps identifie
 npx tsx src/cli.ts --mode design --spec path/to/spec.md --rounds 3
 ```
 
-Helpful examples:
+Blessed examples:
 
 ```bash
-# Intentional flaws
+# Strongest first demo: intentional flaws
 npx tsx src/cli.ts --mode design --spec examples/sample-api-spec-flawed.md
 
-# Intentional ambiguity
+# Second demo: intentional ambiguity
 npx tsx src/cli.ts --mode design --spec examples/sample-api-spec-ambiguous.md
 
-# More balanced sample
+# More balanced sample after that
 npx tsx src/cli.ts --mode design --spec examples/sample-api-spec.md
 ```
 
